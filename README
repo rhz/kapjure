@@ -1,0 +1,50 @@
+Stochastic simulation:
+
+Aqui algunas notas sobre como pienso hacer la nueva implementacion del simulador del lenguaje Kappa:
+
+los patrones son funciones predicado (devuelven verdadero o falso)
+
+las reglas estan compuestas por el patron lhs y una funcion a la que se le entrega la mezcla (expresion)
+actual y devuelve una nueva mezcla sobre la cual ya se eligieron los complejos que hacen match con el lhs
+y fueron reemplazados por aquellos en el rhs
+
+las expresiones podrian ser funciones que reciban un patron y devuelvan todos los complejos que
+hagan match. Que mas se necesita hacer con las expresiones?
+
+las constantes cineticas son funciones que se les entrega un vector con las cantidades de cada
+complejo en el lhs de la regla y este entrega la actividad. Esto nos permite tener funciones que
+trabajan directamente con la constante cinetica estocastica y otras funciones que calculan la
+actividad en base al volumen del contenedor y la constante cinetica determinista.
+
+Gillespie debe ser implementado de forma que despues pueda ser intercambiado por otra implementacion
+(con tiempo logaritmico o tiempo constante)
+
+Es importante que el parser transforma reglas en una estructura agnostica que luego es compilada en
+las funciones y estructuras mencionadas arriba, ya que para los analisis estaticos estas otras estructuras
+no nos serviran.
+
+Los agentes deben tener embebido el mapa de enlaces
+
+//////////////////////////////////////////////
+
+Static analyses:
+
+* Contact map
+* Activation and inhibition map
+* Set of reachable states from an initial state (lazy set)
+* Finite state transition systems (FSTSs) for model checking
+* 
+
+//////////////////////////////////////////////
+
+Para los FSTSs, hay que ponerle letras a los complejos de las reglas (lhs y rhs) en base a los mapas de
+activacion e inhibicion... si un complejo hace match sobre otro, deberian llevar la misma letra...
+para poder hacer calzar todas las letras tal vez haya que crear reacciones que no existen...
+y cuando se hace una pregunta, el state descriptor va a involucrar un complejo y se ve con que complejo
+hace match para asignarle esa misma letra tb... de que modo se puede estar seguro que, a pesar de que ese
+complejo haga match sobre algun complejo de alguna regla, tal vez esa molecula no se podra producir jamas
+por el estado inicial del cual se esta partiendo?... habria que encontrar una manera de "retrosintetizar"
+esas moleculas a las moleculas del estado inicial?... hay que contar el numero de veces que tiene que
+ocurrir una reaccion (o varias) para que se llegue a la molecula dada en el query? creo que esto ultimo
+no es necesario.
+espero entender esto manana
