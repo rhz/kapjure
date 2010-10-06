@@ -1,4 +1,4 @@
-(ns clj-kappa.parser
+(ns kappa.parser
   (:use name.choi.joshua.fnparse
         clojure.contrib.error-kit))
 

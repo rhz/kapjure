@@ -1,6 +1,6 @@
-(ns clj-kappa.kappa
+(ns kappa.kappa
   (:use [clojure.contrib.combinatorics :only (cartesian-product)]
-        [clj-kappa.parser :only (parse-agent)]))
+        [kappa.parser :only (parse-agent)]))
 
 ;;; Data structures
 
@@ -43,7 +43,7 @@
 (defn rule?
   "Check if obj is a Kappa rule"
   [obj]
-  (and (:lhs obj) (:rhs obj) (:rate obj)))
+  (and (:lhs obj) (:rhs obj) (:rate obj) true))
 
 
 ;;; Macros

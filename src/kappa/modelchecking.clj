@@ -1,5 +1,5 @@
-(ns clj-kappa.modelchecking
-  (:use clj-kappa.parser))
+(ns kappa.modelchecking
+  (:use kappa.parser))
 
 ;; We'll use the rule struct for rule instances
 (defn prism-model

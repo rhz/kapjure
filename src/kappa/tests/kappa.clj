@@ -1,8 +1,8 @@
-(ns clj-kappa.tests.kappa
-  (:use clj-kappa.kappa
+(ns kappa.tests.kappa
+  (:use kappa.kappa
         [clojure.contrib.test-is :only (is)]))
 
-;;; Tests for type?
+;;; Tests for kype
 (def a1 (struct k-agent :a {} {}))
 (is (= (kype a1) :agent))
 (is (= (kype []) :complex))
@@ -11,9 +11,9 @@
 (is (= (kype 1) nil))
 
 ;; Test for modify-state
-(= (:states (modify-state (struct k-agent :a {:s "phos"} {})
-                          :s "unphos"))
-   {:s "unphos"})
+(is (= (:states (modify-state (struct k-agent :a {:s "phos"} {})
+                              :s "unphos"))
+       {:s "unphos"}))
 
 ;;; Tests for match :agent
 ;; match

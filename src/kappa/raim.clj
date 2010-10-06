@@ -1,5 +1,5 @@
-(ns clj-kappa.raim
-  (:use [clj-kappa.kappa :only (match)]
+(ns kappa.raim
+  (:use [kappa.kappa :only (match)]
         [clojure.contrib.duck-streams :only (write-lines)]))
 
 (defn activation-map [rule-set]
