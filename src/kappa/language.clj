@@ -1,4 +1,4 @@
-(ns kappa.kappa
+(ns kappa.language
   (:use [clojure.contrib.combinatorics :only (cartesian-product)]
         [kappa.parser :only (parse-agent)]))
 

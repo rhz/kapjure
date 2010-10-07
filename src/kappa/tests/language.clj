@@ -1,5 +1,5 @@
-(ns kappa.tests.kappa
-  (:use kappa.kappa
+(ns kappa.tests.language
+  (:use kappa.language
         [clojure.contrib.test-is :only (is)]))
 
 ;;; Tests for kype
