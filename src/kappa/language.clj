@@ -18,8 +18,72 @@
 
 
 ;;; Interpret: convert the parsed string into the data structures above
-(defn interp [expr]
-  nil)
+(defn group-parsed-agents
+  "Group the parsed agents for further processing in a regular way.
+  The output is a seq of subexpressions and their factors, i.e., a seq of [factor subexpr]"
+  [expr]
+  (loop [[x & xs] expr
+         non-grouped []
+         grouped []]
+    (cond
+      (nil? x) (cons [1 non-grouped] grouped)
+      (number? (first x)) (recur xs non-grouped
+                                 (cons (group-parsed-agents x) grouped)) ; subexpr + factor
+      (coll? (first x)) (recur xs (concat x non-grouped) grouped) ; agent + factor
+      :else (recur xs (cons x non-grouped) grouped)))) ; agent alone
+
+(defn interp-iface
+  "Translate the parsed interface into the two maps required to construct a k-agent struct.
+  The output is a vector containing the two maps.
+  Note: as the neighbourhood information requires knowledge of the other agents in the
+  expression, the :bindings map must be provided externally (nbs)"
+  [iface nbs]
+  (if (= iface :empty-interface)
+    [{} {}]
+    [(->> (for [[site-name state _] iface]
+            {site-name state})
+          (apply merge))
+     nbs]))
+
+(defn neighbours
+  "Assuming each symbol in syms corresponds to one agent in expr (the parsed string),
+  creates the map representing the neighbourhood of each symbol.
+  The returning vector contains the maps for the :bindings of each agent"
+  [syms expr]
+  (let [label-map (->> expr
+                       (filter (fn [[_ iface]] (and (not (= iface :empty-interface))
+                                                    (string? (nth iface 2)))))
+                       (map (fn [[_ [site-name _ binding]]] [site-name binding])))]
+    (->> (for [s syms, [_ iface] expr]
+           {s (if (= iface :empty-interface)
+                {}
+                (->> (for [[site-name _ binding] iface]
+                       {site-name (if (string? binding) ; label?
+                                    nil
+                                    binding)})
+                     (apply merge)))})
+         (apply merge))))
+
+;; Tiene que haber una manera de hacer esto con una funcion! a pensar!
+(defmacro interp-subexpr [subexpr]
+  `(let [subexpr ~subexpr
+         syms (repeatedly (count subexpr) #(gensym))
+         nbs (neighbours syms subexpr)]
+     ;; bind the generated symbols to (ref nil)
+     (let [~@(for [x (map (fn [s] `(~s (ref nil))) syms), y x] y)]
+       (dosync
+        ~@(map (fn [s a]
+                 `(ref-set ~s (struct k-agent ~(a 0) ; (a 0) = agent's name
+                                      ~@(interp-iface (a 1) (nbs s))))) ; (a 1) = agent's interface
+               syms subexpr))
+       ~syms)))
+
+(defn interp
+  "Convert the parsed string into the corresponding clj-kappa data structures"
+  [expr]
+  (let [subexprs (group-parsed-agents expr)]
+    (for [[factor subexpr] subexprs]
+      (repeatedly factor #(interp-subexpr subexpr)))))
 
 
 ;;; Predicates

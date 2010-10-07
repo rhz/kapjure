@@ -24,7 +24,7 @@
 (def comment-lit (complex [_ (lit \#)
                            content (rep* (alt alpha-num-string (lit \space)))
                            _ (opt line-break)]
-                          [:comment content]))
+                   [:comment content]))
 (def ws (constant-semantics (rep+ (alt space tab line-break comment-lit)) :ws))
 
 ;; Numbers
@@ -40,79 +40,78 @@
                above-one whole-number
                below-one (opt fractional-part)
                power (opt exponential-part)]
-              (-> [minus above-one below-one power] flatten apply-str read-string)))
+       (-> [minus above-one below-one power] flatten apply-str read-string)))
 (def ratio (complex [minus (opt (lit \-))
                      numerator whole-number
                      div (lit \/)
                      denominator whole-number]
-                    (-> [minus numerator div denominator] flatten apply-str read-string)))
+             (-> [minus numerator div denominator] flatten apply-str read-string)))
 (def number (alt ratio decimal-number))
 
 ;; Interface
-(def begin-interface (constant-semantics (conc (opt ws) (lit \() (opt ws))
-                                         ;; this keyword is a dummy value, it
-                                         ;; doesn't appear in the final result.
-                                         :begin-interface))
-(def end-interface (constant-semantics (conc (opt ws) (lit \)) (opt ws))
-                                       :end-interface)) ; the same for this
 (defn separator [chr]
   (constant-semantics (conc (opt ws) (lit chr) (opt ws))
-                      :separator)) ; and for this
+                      :separator))
 
 (def internal-state (complex [i-s (opt (conc (lit \~) alpha-num-string))]
-                             (if (nil? i-s) :any-state
-                                 (apply-str (second i-s)))))
+                      (if (nil? i-s) :any-state
+                          (apply-str (second i-s)))))
 (def binding-state (complex [b-s (opt (conc (lit \!)
                                             (alt (constant-semantics (lit \?) :unspecified)
                                                  (constant-semantics (lit \_) :semi-link)
                                                  whole-number)))]
-                            (let [b-s (second b-s)]
-                              (cond (nil? b-s) :free
-                                    (keyword? b-s) b-s
-                                    :else (apply-str b-s)))))
+                     (let [b-s (second b-s)]
+                       (cond (nil? b-s) :free
+                             (keyword? b-s) b-s
+                             :else (apply-str b-s)))))
 (def site (complex [name alpha-num-string
                     i-s internal-state
                     b-s binding-state]
-                   [(apply-str name) i-s b-s]))
+            [(apply-str name) i-s b-s]))
 (def site-list (rep* (invisi-conc site (opt (separator \,)))))
-(def interface (complex [begin-iface (opt begin-interface)
-                         iface (opt site-list)
-                         end-iface (opt end-interface)]
-                        (if (or (nil? begin-iface) (nil? iface) (nil? end-iface))
-                          :empty-interface
-                          iface)))
+(def interface (complex [_ (separator \()
+                         iface site-list
+                         _ (separator \))]
+                 iface))
 
 ;; Agent
-(def kappa-agent (complex [modifier (opt (invisi-conc whole-number (separator \*)))
-                           ;;sep (conc (opt ws) (opt (lit \*)) (opt ws))
-                           name alpha-num-string
+(def kappa-agent (complex [name alpha-num-string
                            _ (opt ws)
-                           iface interface]
-                          [(if (nil? modifier) 1
-                               (read-string (apply-str modifier)))
-                           (apply-str name) iface]))
+                           iface (opt interface)]
+                   [(apply-str name)
+                    (if (nil? iface) :empty-interface iface)]))
 
 ;; Expression
-(def expression (rep* (invisi-conc kappa-agent (opt (separator \,)))))
+(def expression (rep* (invisi-conc
+                       (alt (complex [factor (invisi-conc whole-number (separator \*))
+                                      agent kappa-agent]
+                              (repeat (read-string (apply-str factor)) agent))
+                            (complex [factor (invisi-conc whole-number (separator \*))
+                                      _ (separator \()
+                                      subexpr expression
+                                      _ (separator \))]
+                              [(read-string (apply-str factor)) subexpr])
+                            kappa-agent)
+                       (opt (separator \,)))))
 
 ;; Rule
 (def arrow (complex [_ (opt ws)
                      rule-type (alt (constant-semantics (lit-conc-seq "<->") :bidirectional-rule)
                                     (constant-semantics (lit-conc-seq "->") :unidirectional-rule))
                      _ (opt ws)]
-                    rule-type))
+             rule-type))
 (def rate-expr (complex [_ (conc (opt ws) (lit \@) (opt ws))
                          rate number]
-                        rate))
+                 rate))
 (def rule-name (complex [rn (opt (conc (lit \') alpha-num-string (lit \')))]
-                        (if (nil? rn) :unnamed-rule
-                            (second rn))))
+                 (if (nil? rn) :unnamed-rule
+                     (second rn))))
 (def rule (complex [rn (opt rule-name)
                     lhs expression
                     rule-type arrow
                     rhs expression
                     rate rate-expr]
-                   {:name rn :lhs lhs :rule-type rule-type :rhs rhs :rate rate}))
+            {:name rn :lhs lhs :rule-type rule-type :rhs rhs :rate rate}))
 
 ;; Rule set
 (def rule-set (rep* (invisi-conc rule line-break)))
@@ -121,23 +120,24 @@
 (def init-line (complex [_ (lit-conc-seq "%init:")
                          _ (rep* ws)
                          expr expression]
-                        {:init expr}))
+                 {:init expr}))
 (def init-set (rep* (invisi-conc init-line line-break)))
 
 (def obs-line (complex [_ (lit-conc-seq "%obs:")
                         _ (rep* ws)
                         obs (complex [var-name (opt (conc (lit \') alpha-num-string (lit \')))
                                       expr (opt expression)]
-                                     (if (nil? expr)
-                                       {:obs var-name} ; we want to observe a rule
-                                       {:name var-name :obs expr}))] obs)) ; or an expression
+                              (if (nil? expr)
+                                {:obs var-name} ; we want to observe a rule
+                                {:name var-name :obs expr}))] ; or an expression
+                obs))
 (def obs-set (rep* (invisi-conc obs-line line-break)))
 
 (def variable-line (complex [_ (lit-conc-seq "%var:")
                              _ (rep* ws)
                              var-name (conc (lit \') alpha-num-string (lit \'))
                              expr expression]
-                            {:var var-name :value expr}))
+                     {:var var-name :value expr}))
 (def variable-set (rep* (invisi-conc variable-line line-break)))
 
 ;; TODO causal flow analysis and perturbations
