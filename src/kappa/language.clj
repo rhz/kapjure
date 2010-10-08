@@ -1,6 +1,6 @@
 (ns kappa.language
   (:use [clojure.contrib.combinatorics :only (cartesian-product)]
-        [kappa.parser :only (parse-agent)]))
+        [kappa.parser :only (parse-agent parse-expression parse-rule)]))
 
 ;;; Data structures
 
@@ -9,7 +9,7 @@
 ;; to internal site states (as strings)
 ;; :bindings is a map from site names to one
 ;; of the tags: :free, :unspecified, :semi-link
-;; or a reference to the bounded agent
+;; or a reference to the bound agent
 
 ;; a complex is a seq of agents
 ;; an expression is a seq of complexes
@@ -18,6 +18,7 @@
 
 
 ;;; Interpret: convert the parsed string into the data structures above
+;;; See kappa.parser
 (defn group-parsed-agents
   "Group the parsed agents for further processing in a regular way.
   The output is a seq of subexpressions and their factors, i.e., a seq of [factor subexpr]."
@@ -32,28 +33,18 @@
       (coll? (first x)) (recur xs (concat x non-grouped) grouped) ; agent + factor
       :else (recur xs (cons x non-grouped) grouped)))) ; agent alone
 
-(defn interp-iface
-  "Translate the parsed interface into the two maps required to construct a k-agent struct.
-  The output is a vector containing the two maps.
-  Note: as the neighbourhood information requires knowledge of the other agents in the
-  expression, the :bindings map must be provided externally (nbs)."
-  [iface nbs]
-  (if (= iface :empty-interface)
-    [{} {}]
-    [(apply merge (for [[site-name state _] iface]
-                    {site-name state}))
-     nbs]))
-
 (defn indexed [s]
   (map vector (iterate inc 0) s))
+
+(def third #(nth % 2))
 
 (defn neighbours
   "Creates a map representing the neighbourhood of each symbol.
   The returning map has agent-refs as keys and maps from
-  site-names to the refs of the bounded agents as values."
+  site-names to the refs of the bound agents as values."
   [expr refs]
-  (let [agents-with-sites (filter #(fn [[n [_ iface]]]
-                                     (not (= iface :empty-interface)))
+  (let [agents-with-sites (filter (fn [[n [_ iface]]]
+                                    (not (= iface :empty-interface)))
                                   (indexed expr)) ; and their indices
         label-map (->> agents-with-sites
                        (map (fn [[n [_ iface]]]
@@ -65,27 +56,60 @@
                                    (apply merge))))
                        (apply merge-with list))]
     (apply merge-with merge
+           (zipmap refs (repeat {})) ; make sure every ref gets a map :)
            (for [[[n1 sn1] [n2 sn2]] (vals label-map)] ; sn stands for site-name
-             {(refs n1) {sn1 (refs n2)}, (refs n2) {sn2 (refs n1)}}))))
+             {(nth refs n1) {sn1 (nth refs n2)},
+              (nth refs n2) {sn2 (nth refs n1)}}))))
+
+(defn interp-iface
+  "Translate the parsed interface into the two maps required to construct a k-agent struct.
+  The output is a vector containing the two maps.
+  Note: as the neighbourhood information requires knowledge of the other agents in the
+  expression, bound agent refs in the :bindings map must be provided externally (in nbs).
+  See neighbours function."
+  ([iface] (interp-iface iface {})) ; no bound agents
+  ([iface nbs] (if (= iface :empty-interface)
+                 [{}, {}] ; :states and :bindings are empty maps
+                 [(zipmap (map first iface) (map second iface)), ; :states
+                  (let [skw (filter #(keyword? (third %)) iface)] ; skw: sites with keywords :P
+                    (merge (zipmap (map first skw) (map third skw)) nbs))]))) ; :bindings
+
+(defn interp-agent
+  ([a] (apply struct k-agent (a 0) ; (a 0) = agent's name
+              (interp-iface (a 1)))) ; (a 1) = agent's interface
+  ([a nbs] (apply struct k-agent (a 0)
+                  (interp-iface (a 1) nbs))))
 
 (defn interp-subexpr
-  "Convert a parsed (sub)expression into a seq of refs with the corresponding agents."
+  "Convert a parsed sub-expression into a seq of refs with the corresponding agents."
   [subexpr]
   (let [refs (repeatedly (count subexpr) #(ref nil))
         nbs (neighbours subexpr refs)]
     (dosync
-     (dorun (map (fn [r a]
-                   (ref-set r (apply struct k-agent (a 0) ; (a 0) = agent's name
-                                     (interp-iface (a 1) (nbs r))))) ; (a 1) = agent's interface
+     (dorun (map (fn [r a] (ref-set r (interp-agent a (nbs r))))
                  refs subexpr)))
     refs))
+
+(defn interp-expr [expr]
+  (let [subexprs (group-parsed-agents expr)]
+    (->> (for [[factor subexpr] subexprs]
+           (repeatedly factor #(interp-subexpr subexpr)))
+         (apply concat)
+         (apply concat))))
+
+(defn interp-rule [r]
+  (if (= (r :rule-type) :bidirectional-rule)
+    [(struct rule (r :name) (interp-expr (r :lhs)) (interp-expr (r :rhs)) (r :rate))
+     (struct rule (r :name) (interp-expr (r :rhs)) (interp-expr (r :lhs)) (r :rate))]
+    [(struct rule (r :name) (interp-expr (r :lhs)) (interp-expr (r :rhs)) (r :rate))]))
 
 (defn interp
   "Convert the parsed string into the corresponding clj-kappa data structures."
   [expr]
-  (let [subexprs (group-parsed-agents expr)]
-    (for [[factor subexpr] subexprs]
-      (repeatedly factor #(interp-subexpr subexpr)))))
+  (cond
+    (map? expr) (interp-rule expr)
+    (string? (first expr)) (interp-agent expr)
+    :else (interp-expr expr)))
 
 
 ;;; Predicates
@@ -120,34 +144,53 @@
 ;; (def-agents a1 agent-defining-map)
 ;; TODO define rules and expressions from strings at compile-time, if it's possible,
 ;; or run-time otherwise.
-(defn get-agent-defs [bindings]
+(defn get-agent-defs
+  "Process the bindings part of def-agents and let-agents."
+  [bindings]
   ;; vars are in odd positions and exprs in even positions
   (->> (for [[v e] (partition 2 bindings)]
          [v (cond
               ;; transform the agent's extended definition
               ;; form (maps) into the compact form (vector)
               (map? e) [(:name e) (:states e) (:bindings e)]
-              (string? e) (interp (parse-agent e))
+              (string? e) (interp-agent (parse-agent e))
               :else e)])
        (apply map list)))
 
-(defmacro def-agents [& bindings]
+;; TODO this function and its use in def-agents and let-agents need
+;;      to be tested in kappa.tests.language
+(defn create-agent [a]
+  (cond
+    (string? a) (interp-agent (parse-agent a))
+    (map? a) (struct k-agent (a :name) (a :states) (a :bindings))
+    (coll? a) (struct k-agent (nth a 0) (nth a 1) (nth a 2))
+    :else (throw (Exception. (str (class a) " cannot be cast to kappa.language/k-agent")))))
+
+(defmacro def-agents
+  "Define multiple agents in a convenient way."
+  [& bindings]
   (let [[vars exprs] (get-agent-defs bindings)]
     `(do
        ~@(map (fn [v] `(def ~v (ref nil))) vars)
        (dosync
         ~@(map (fn [v e]
-                 `(ref-set ~v ~(if (or (symbol? e) (agent? e)) e
-                                   `(struct k-agent ~(e 0) ~(e 1) ~(e 2)))))
+                 `(ref-set ~v ~(cond
+                                 (agent? e) e
+                                 (symbol? e) `(create-agent ~e)
+                                 :else `(struct k-agent ~(e 0) ~(e 1) ~(e 2)))))
                vars exprs)))))
 
-(defmacro let-agents [bindings & body]
+(defmacro let-agents
+  ""
+  [bindings & body]
   (let [[vars exprs] (get-agent-defs bindings)]
     `(let [~@(for [x (map (fn [v] `(~v (ref nil))) vars), y x] y)]
        (dosync
         ~@(map (fn [v e]
-                 `(ref-set ~v ~(if (or (symbol? e) (agent? e)) e
-                                   `(struct k-agent ~(e 0) ~(e 1) ~(e 2)))))
+                 `(ref-set ~v ~(cond
+                                 (agent? e) e
+                                 (symbol? e) `(create-agent ~e)
+                                 :else `(struct k-agent ~(e 0) ~(e 1) ~(e 2)))))
                vars exprs))
        ~@body)))
 

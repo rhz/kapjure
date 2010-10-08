@@ -1,5 +1,6 @@
 (ns kappa.tests.language
   (:use kappa.language
+        [kappa.parser :only (parse-agent parse-expression parse-rule)]
         [clojure.contrib.test-is :only (is)]))
 
 ;;; Tests for kype
@@ -69,4 +70,19 @@
 (let-agents [pa3 [:a {:s ""} {:s :semi-link}]]
   (is (= (match [@pa3] [@a1 @a2]) true)))
 ;; TODO more tests for match :complex
+
+;; Tests for interp
+(is (= (interp (parse-agent "a(x!_)"))
+       (struct k-agent "a" {"x" ""} {"x" :semi-link})))
+(is (= @(first (interp (parse-expression "a(x)")))
+       (struct k-agent "a" {"x" ""} {"x" :free})))
+(is (= (:states @(first (interp (parse-expression "a(x!1), b(x!1)"))))
+       {"x" ""}))
+;; FIXME why first returns b(x~u!1)?
+(is (= (:name @(first (interp (parse-expression "a(x!1), b(x!1)"))))
+       "b"))
+(is (= (:states @((:bindings @(first (interp (parse-expression "a(x~p!1), b(x~u!1)")))) "x"))
+       {"x" "p"}))
+(is (= (:name @((:bindings @(first (interp (parse-expression "a(x~p!1), b(x~u!1)")))) "x"))
+       "a"))
 

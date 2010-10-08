@@ -54,7 +54,7 @@
                       :separator))
 
 (def internal-state (complex [i-s (opt (conc (lit \~) alpha-num-string))]
-                      (if (nil? i-s) :any-state
+                      (if (nil? i-s) ""
                           (apply-str (second i-s)))))
 (def binding-state (complex [b-s (opt (conc (lit \!)
                                             (alt (constant-semantics (lit \?) :unspecified)
