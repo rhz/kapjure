@@ -20,7 +20,7 @@
 ;;; Interpret: convert the parsed string into the data structures above
 (defn group-parsed-agents
   "Group the parsed agents for further processing in a regular way.
-  The output is a seq of subexpressions and their factors, i.e., a seq of [factor subexpr]"
+  The output is a seq of subexpressions and their factors, i.e., a seq of [factor subexpr]."
   [expr]
   (loop [[x & xs] expr
          non-grouped []
@@ -36,50 +36,52 @@
   "Translate the parsed interface into the two maps required to construct a k-agent struct.
   The output is a vector containing the two maps.
   Note: as the neighbourhood information requires knowledge of the other agents in the
-  expression, the :bindings map must be provided externally (nbs)"
+  expression, the :bindings map must be provided externally (nbs)."
   [iface nbs]
   (if (= iface :empty-interface)
     [{} {}]
-    [(->> (for [[site-name state _] iface]
-            {site-name state})
-          (apply merge))
+    [(apply merge (for [[site-name state _] iface]
+                    {site-name state}))
      nbs]))
 
-(defn neighbours
-  "Assuming each symbol in syms corresponds to one agent in expr (the parsed string),
-  creates the map representing the neighbourhood of each symbol.
-  The returning vector contains the maps for the :bindings of each agent"
-  [syms expr]
-  (let [label-map (->> expr
-                       (filter (fn [[_ iface]] (and (not (= iface :empty-interface))
-                                                    (string? (nth iface 2)))))
-                       (map (fn [[_ [site-name _ binding]]] [site-name binding])))]
-    (->> (for [s syms, [_ iface] expr]
-           {s (if (= iface :empty-interface)
-                {}
-                (->> (for [[site-name _ binding] iface]
-                       {site-name (if (string? binding) ; label?
-                                    nil
-                                    binding)})
-                     (apply merge)))})
-         (apply merge))))
+(defn indexed [s]
+  (map vector (iterate inc 0) s))
 
-;; Tiene que haber una manera de hacer esto con una funcion! a pensar!
-(defmacro interp-subexpr [subexpr]
-  `(let [subexpr ~subexpr
-         syms (repeatedly (count subexpr) #(gensym))
-         nbs (neighbours syms subexpr)]
-     ;; bind the generated symbols to (ref nil)
-     (let [~@(for [x (map (fn [s] `(~s (ref nil))) syms), y x] y)]
-       (dosync
-        ~@(map (fn [s a]
-                 `(ref-set ~s (struct k-agent ~(a 0) ; (a 0) = agent's name
-                                      ~@(interp-iface (a 1) (nbs s))))) ; (a 1) = agent's interface
-               syms subexpr))
-       ~syms)))
+(defn neighbours
+  "Creates a map representing the neighbourhood of each symbol.
+  The returning map has agent-refs as keys and maps from
+  site-names to the refs of the bounded agents as values."
+  [expr refs]
+  (let [agents-with-sites (filter #(fn [[n [_ iface]]]
+                                     (not (= iface :empty-interface)))
+                                  (indexed expr)) ; and their indices
+        label-map (->> agents-with-sites
+                       (map (fn [[n [_ iface]]]
+                              (->> iface
+                                   ;; filter out the sites that has no bond label
+                                   (filter (fn [[_ _ binding]] (string? binding)))
+                                   (map (fn [[site-name _ binding]]
+                                          {binding [n site-name]}))
+                                   (apply merge))))
+                       (apply merge-with list))]
+    (apply merge-with merge
+           (for [[[n1 sn1] [n2 sn2]] (vals label-map)] ; sn stands for site-name
+             {(refs n1) {sn1 (refs n2)}, (refs n2) {sn2 (refs n1)}}))))
+
+(defn interp-subexpr
+  "Convert a parsed (sub)expression into a seq of refs with the corresponding agents."
+  [subexpr]
+  (let [refs (repeatedly (count subexpr) #(ref nil))
+        nbs (neighbours subexpr refs)]
+    (dosync
+     (dorun (map (fn [r a]
+                   (ref-set r (apply struct k-agent (a 0) ; (a 0) = agent's name
+                                     (interp-iface (a 1) (nbs r))))) ; (a 1) = agent's interface
+                 refs subexpr)))
+    refs))
 
 (defn interp
-  "Convert the parsed string into the corresponding clj-kappa data structures"
+  "Convert the parsed string into the corresponding clj-kappa data structures."
   [expr]
   (let [subexprs (group-parsed-agents expr)]
     (for [[factor subexpr] subexprs]
@@ -88,24 +90,24 @@
 
 ;;; Predicates
 (defn agent?
-  "Check if obj is a Kappa agent"
+  "Check if obj is a Kappa agent."
   [obj]
   (and (:name obj) (:states obj) (:bindings obj) true))
 
 (defn complex?
-  "Check if obj is a Kappa complex"
+  "Check if obj is a Kappa complex."
   [obj]
   (and (coll? obj)
        (every? agent? obj)))
 
 (defn expression?
-  "Check if obj is a Kappa expression"
+  "Check if obj is a Kappa expression."
   [obj]
   (and (coll? obj)
        (every? complex? obj)))
 
 (defn rule?
-  "Check if obj is a Kappa rule"
+  "Check if obj is a Kappa rule."
   [obj]
   (and (:lhs obj) (:rhs obj) (:rate obj) true))
 
@@ -152,7 +154,7 @@
 
 ;;; Functions
 (defn modify-state
-  "Returns a copy of agent with site's internal state changed to new-state"
+  "Returns a copy of agent with site's internal state changed to new-state."
   [agent site new-state]
   (assoc-in agent [:states site] new-state))
 
@@ -164,7 +166,7 @@
 
 (defn kype
   "Returns a keyword representing the type of obj.
-  The possible keywords are: :agent, :complex, :expression and :rule
+  The possible keywords are: :agent, :complex, :expression and :rule.
   kype is a contraction between Kappa and type."
   [obj]
   (cond
@@ -182,7 +184,7 @@
 
 (defmulti match
   "Check if the given pattern (first argument) matches
-  the given agent or complex (second argument)"
+  the given agent or complex (second argument)."
   {:arglists '([p a] [p c])}
   match-dispatch)
 
@@ -237,11 +239,11 @@
 
 ;; TODO reachable-complexes and reachable-reactions
 (defn reachable-complexes
-  "Returns a lazy seq of all the complexes reachable by the system"
+  "Returns a lazy seq of all the complexes reachable by the system."
   [rule-set initial-state]
   nil)
 
 (defn reachable-reactions
-  "Returns a lazy seq of all the rule instances (i.e., reactions) reachable by the system"
+  "Returns a lazy seq of all the rule instances (i.e., reactions) reachable by the system."
   [rule-set initial-state]
   nil)
