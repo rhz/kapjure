@@ -1,20 +1,37 @@
 (ns kappa.language
-  (:use [clojure.contrib.combinatorics :only (cartesian-product)]
+  (:use [clojure.contrib.math :only (expt)]
+        [clojure.contrib.combinatorics :only (cartesian-product)]
         [kappa.parser :only (parse-agent parse-expression parse-rule)]))
+
+;; TODO todo lo de interp, macros y chamber deberian quedar fuera de
+;;      este archivo, cada uno en su propio archivo
+;; eso nos ahorra los dos :use de arriba
+;; pero todavia no, es mas facil manejar un archivo grande en emacs que varios chicos
 
 ;;; Data structures
 
-(defstruct k-agent :name :states :bindings)
-;; :states is a map from site names (as keywords)
+(defrecord Agent [name states bindings])
+;; states is a map from site names (as keywords)
 ;; to internal site states (as strings)
-;; :bindings is a map from site names to one
+;; bindings is a map from site names to one
 ;; of the tags: :free, :unspecified, :semi-link
 ;; or a reference to the bound agent
 
 ;; a complex is a seq of agents
 ;; an expression is a seq of complexes
 
-(defstruct rule :name :lhs :rhs :rate)
+(defrecord Rule [name lhs rhs rate])
+;; rate is the deterministic kinetic constant
+
+(defmethod print-method Agent [a w]
+  (.write w (str (apply str (:name a) "("
+                        ;; interface
+                        (map (fn [s] (interpose \, (str s "~" ((:states a) s)
+                                                        "!" (:name @((:bindings a) s)))))
+                             (keys (:states a))))
+                 ")")))
+
+(defn count-automorphisms [expr] nil)
 
 
 ;;; Interpret: convert the parsed string into the data structures above
@@ -75,10 +92,9 @@
                     (merge (zipmap (map first skw) (map third skw)) nbs))]))) ; :bindings
 
 (defn interp-agent
-  ([a] (apply struct k-agent (a 0) ; (a 0) = agent's name
-              (interp-iface (a 1)))) ; (a 1) = agent's interface
-  ([a nbs] (apply struct k-agent (a 0)
-                  (interp-iface (a 1) nbs))))
+  ([a] (interp-agent a {}))
+  ([a nbs] (let [[states bindings] (interp-iface (a 1) nbs)] ; (a 1) = agent's interface
+             (Agent. (a 0) states bindings)))) ; (a 0) = agent's name
 
 (defn interp-subexpr
   "Convert a parsed sub-expression into a seq of refs with the corresponding agents."
@@ -99,9 +115,15 @@
 
 (defn interp-rule [r]
   (if (= (r :rule-type) :bidirectional-rule)
-    [(struct rule (r :name) (interp-expr (r :lhs)) (interp-expr (r :rhs)) (r :rate))
-     (struct rule (r :name) (interp-expr (r :rhs)) (interp-expr (r :lhs)) (r :rate))]
-    [(struct rule (r :name) (interp-expr (r :lhs)) (interp-expr (r :rhs)) (r :rate))]))
+    [(Rule. (:name r) (with-meta (interp-expr (:lhs r))
+                        {:automorphisms (count-automorphisms (:lhs r))})
+            (interp-expr (:rhs r)) (:rate r))
+     (Rule. (:name r) (with-meta (interp-expr (:rhs r))
+                        {:automorphisms (count-automorphisms (:rhs r))})
+            (interp-expr (:lhs r)) (:rate r))]
+    [(Rule. (:name r) (with-meta (interp-expr (:lhs r))
+                        {:automorphisms (count-automorphisms (:lhs r))})
+            (interp-expr (:rhs r)) (:rate r))]))
 
 (defn interp
   "Convert the parsed string into the corresponding clj-kappa data structures."
@@ -116,13 +138,14 @@
 (defn agent?
   "Check if obj is a Kappa agent."
   [obj]
-  (and (:name obj) (:states obj) (:bindings obj) true))
+  (= (type obj) Agent))
 
 (defn complex?
   "Check if obj is a Kappa complex."
   [obj]
   (and (coll? obj)
-       (every? agent? obj)))
+       (every? #(instance? clojure.lang.IDeref %) obj)
+       (every? agent? (map deref obj))))
 
 (defn expression?
   "Check if obj is a Kappa expression."
@@ -133,66 +156,85 @@
 (defn rule?
   "Check if obj is a Kappa rule."
   [obj]
-  (and (:lhs obj) (:rhs obj) (:rate obj) true))
+  (= (type obj) Rule))
 
 
 ;;; Macros
 ;;; To define agents in a simple way
-;; TODO the only thing that doesnt work yet is to define a variable (with let or def)
-;; for a map or vector and then use that variable to define agents. For example:
-;; (def agent-defining-map {:name "a" :states {} :bindings {}})
-;; (def-agents a1 agent-defining-map)
-;; TODO define rules and expressions from strings at compile-time, if it's possible,
-;; or run-time otherwise.
-(defn get-agent-defs
-  "Process the bindings part of def-agents and let-agents."
-  [bindings]
-  ;; vars are in odd positions and exprs in even positions
-  (->> (for [[v e] (partition 2 bindings)]
-         [v (cond
-              ;; transform the agent's extended definition
-              ;; form (maps) into the compact form (vector)
-              (map? e) [(:name e) (:states e) (:bindings e)]
-              (string? e) (interp-agent (parse-agent e))
-              :else e)])
-       (apply map list)))
-
 ;; TODO this function and its use in def-agents and let-agents need
 ;;      to be tested in kappa.tests.language
 (defn create-agent [a]
   (cond
     (string? a) (interp-agent (parse-agent a))
-    (map? a) (struct k-agent (a :name) (a :states) (a :bindings))
-    (coll? a) (struct k-agent (nth a 0) (nth a 1) (nth a 2))
-    :else (throw (Exception. (str (class a) " cannot be cast to kappa.language/k-agent")))))
+    (map? a) (Agent. (a :name) (a :states) (a :bindings))
+    (coll? a) (Agent. (nth a 0) (nth a 1) (nth a 2))
+    :else (throw (Exception. (str (class a) " cannot be cast to kappa.language.Agent")))))
+
+(defn create-agent-in-macro [a]
+  (cond
+    (string? a) `(interp-agent ~(parse-agent a))
+    (map? a) `(Agent. ~(a :name) ~(a :states) ~(a :bindings))
+    (coll? a) `(Agent. ~(nth a 0) ~(nth a 1) ~(nth a 2))
+    (symbol? a) `(create-agent ~a)
+    :else (throw (Exception. (str (class a) " cannot be cast to kappa.language.Agent")))))
 
 (defmacro def-agents
-  "Define multiple agents in a convenient way."
+  "Define multiple agents (that can be mutually recursive) in a convenient way.
+  Each agent can be defined using a vector, a map, a string or a symbol bound to any of them."
   [& bindings]
-  (let [[vars exprs] (get-agent-defs bindings)]
+  (let [[vars exprs] (apply map list (partition 2 bindings))]
     `(do
        ~@(map (fn [v] `(def ~v (ref nil))) vars)
        (dosync
         ~@(map (fn [v e]
-                 `(ref-set ~v ~(cond
-                                 (agent? e) e
-                                 (symbol? e) `(create-agent ~e)
-                                 :else `(struct k-agent ~(e 0) ~(e 1) ~(e 2)))))
+                 `(ref-set ~v ~(create-agent-in-macro e)))
                vars exprs)))))
 
 (defmacro let-agents
-  ""
+  "Like let for agents definitions. See def-agents."
   [bindings & body]
-  (let [[vars exprs] (get-agent-defs bindings)]
-    `(let [~@(for [x (map (fn [v] `(~v (ref nil))) vars), y x] y)]
+  (let [[locals exprs] (apply map list (partition 2 bindings))]
+    `(let [~@(for [x (map (fn [v] `(~v (ref nil))) locals), y x] y)]
        (dosync
         ~@(map (fn [v e]
-                 `(ref-set ~v ~(cond
-                                 (agent? e) e
-                                 (symbol? e) `(create-agent ~e)
-                                 :else `(struct k-agent ~(e 0) ~(e 1) ~(e 2)))))
-               vars exprs))
+                 `(ref-set ~v ~(create-agent-in-macro e)))
+               locals exprs))
        ~@body)))
+
+(defmacro def-expressions
+  [& bindings]
+  (let [[vars exprs] (apply map list (partition 2 bindings))]
+    `(do ~@(map (fn [v e] `(def ~v (interp-expr (parse-expression ~e))))
+                vars exprs))))
+
+(defmacro let-expressions
+  [bindings & body]
+  (let [[locals exprs] (apply map list (partition 2 bindings))]
+    `(let [~@(for [x (map (fn [v e] `(~v (interp-expr (parse-expression ~e))))
+                          locals exprs)
+                   y x] y)]
+       ~@body)))
+
+(defmacro def-rules
+  [& bindings]
+  (let [[vars exprs] (apply map list (partition 2 bindings))]
+    `(do ~@(map (fn [v e] `(let [r# (interp-rule (parse-rule ~e))]
+                             (def ~v (nth r# 0))
+                             (def ~(symbol (str v "_op")) (nth r# 1 nil))))
+                vars exprs))))
+
+(defmacro let-rules
+  [bindings & body]
+  (let [[locals exprs] (apply map list (partition 2 bindings))]
+    `(let [~@(for [x (map (fn [v e] `[r# (interp-rule (parse-rule ~e))
+                                      ~v (nth r# 0)
+                                      ~(symbol (str v "_op")) (nth r# 1 nil)])
+                          locals exprs)
+                   y x] y)]
+       ~@body)))
+
+;; Are def-agents and let-agents useful when we have the other four macros
+;; for expressions and rules?
 
 
 ;;; Functions
@@ -207,23 +249,11 @@
 (defn unbind-agents [c a1 a2] nil)
 ;; unbind-agents must return two complexes
 
-(defn kype
-  "Returns a keyword representing the type of obj.
-  The possible keywords are: :agent, :complex, :expression and :rule.
-  kype is a contraction between Kappa and type."
-  [obj]
-  (cond
-    (agent? obj) :agent
-    (complex? obj) :complex
-    (expression? obj) :expression
-    (rule? obj) :rule))
-
 
 ;;; Match
 (defn match-dispatch [obj1 obj2]
-  (when-let [type-obj1 (kype obj1)]
-    (when (= type-obj1 (kype obj2))
-      type-obj1)))
+  (or (and (agent? obj1) (agent? obj2) :agent)
+      (and (complex? obj1) (complex? obj2) :complex)))
 
 (defmulti match
   "Check if the given pattern (first argument) matches
@@ -232,28 +262,28 @@
   match-dispatch)
 
 (defmethod match :agent [p a] ; p stands for pattern, a for agent
-  (and (= (a :name) (p :name)) ; the names are the same
+  (and (= (:name a) (:name p)) ; the names are the same
        ;; every site mentioned in p is present in a
-       (every? #(% (a :states)) (keys (p :states)))
-       (every? #(% (a :bindings)) (keys (p :bindings)))
+       (every? #(% (:states a)) (keys (:states p)))
+       (every? #(% (:bindings a)) (keys (:bindings p)))
        ;; state values of each site mentioned in p is equal or less specific than those in a
        (let [p-states (apply hash-map
                              (flatten (filter #(not (= (second %) ""))
-                                              (p :states))))]
-         (every? #(= (p-states %) ((a :states) %)) (keys p-states)))
+                                              (:states p))))]
+         (every? #(= (p-states %) ((:states a) %)) (keys p-states)))
        ;; binding values of each site mentioned in p is equal or less specific than those in a
        (let [p-bindings (apply hash-map
                                (flatten (filter #(not (= (second %) :unspecified))
-                                                (p :bindings))))]
+                                                (:bindings p))))]
          (every? #(case (p-bindings %)
                     :unspecified true
-                    :free (= ((a :bindings) %) :free)
-                    (not (= ((a :bindings) %) :free)))
+                    :free (= ((:bindings a) %) :free)
+                    (not (= ((:bindings a) %) :free)))
                  (keys p-bindings)))))
 
 (defmethod match :complex [p c] ; p stands for pattern, c for complex
   ;; stores all matchings for every agent in p (lazyly :)
-  (let [matchings (map (fn [p] (filter #(match p %) c)) p)
+  (let [matchings (map (fn [p] (filter #(match @p @%) c)) p)
         match-comb (apply cartesian-product matchings) ; matching combinations
         n (count p)]
     ;; try every combination of matchings checking if the neighbours corresponds
@@ -266,13 +296,13 @@
           (or (and (= (count match-dict) n)
                    (every? (fn [[pa a]] ; iterates over every matching pa => a
                              (every? true?
-                                     (map (fn [[site nb]] ; nb: neighbour of pa
-                                            (case nb
+                                     (map (fn [[site binding]]
+                                            (case binding
                                               :unspecified true
-                                              :semi-link (not (= ((a :bindings) site) :free))
-                                              :free (= ((a :bindings) site) :free)
-                                              (= @((a :bindings) site) (match-dict @nb))))
-                                          (pa :bindings))))
+                                              :semi-link (not (= ((:bindings @a) site) :free))
+                                              :free (= ((:bindings @a) site) :free)
+                                              (= ((:bindings @a) site) (match-dict binding))))
+                                          (:bindings @pa))))
                            match-dict))
               (recur (rest left))))))))
 
@@ -290,3 +320,43 @@
   "Returns a lazy seq of all the rule instances (i.e., reactions) reachable by the system."
   [rule-set initial-state]
   nil)
+
+;;; Chambers
+;; clash es el numero de veces que ha ocurrido un clash
+;; activities y stochastic-kcs deberian ser parte de gillespie
+;; Chamber deberia tener tb un matching-map and lift-map (el contrario del matching-map)
+;; deberian ser estos dos maps parte de gillespie tb?
+;; donde van el ram y el rim?
+;; me gustaria que al terminar cada paso de simulacion se pudiese llamar una funcion
+;; callback sobre los cambios y/o el estado nuevo de la simulacion
+;; esta funcion se le podria pasar a la funcion que haga la iteracion
+;; esta funcion podria servir para actualizar el volumen u otras partes del Chamber
+(defrecord Chamber [volume rules mixture stochastic-kcs activities clash])
+
+(defn update-volume [chamber new-volume]
+  (assoc chamber :volume (with-meta new-volume
+                           {:changed? true})))
+
+(defn determ2stoch [volume rule]
+  (let [Avogadro 6.022e23
+        num-complexes (count (:lhs rule))]
+    (/ (* (expt volume (- num-complexes 1))
+          Avogadro
+          (:rate rule))
+       (:automorphisms (meta (:lhs rule))))))
+
+(defn update-stochastic-kcs [chamber]
+  (if (:changed? (meta (:volume chamber)))
+    (-> chamber
+        (assoc :volume (with-meta (:volume chamber) {:changed? false}))
+        (assoc :stochastic-kcs (map (partial determ2stoch (:volume chamber))
+                                    (:rules chamber))))
+    chamber))
+
+(defn update-activities [chamber] nil)
+
+(defn gen-event
+  "Generates a new event from chamber."
+  [chamber]
+  nil)
+
