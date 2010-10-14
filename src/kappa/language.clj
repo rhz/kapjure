@@ -113,17 +113,14 @@
          (apply concat)
          (apply concat))))
 
+(defn create-rule [name lhs rhs rate]
+  (Rule. name (with-meta lhs {:automorphisms (count-automorphisms lhs)}) rhs rate))
+
 (defn interp-rule [r]
   (if (= (r :rule-type) :bidirectional-rule)
-    [(Rule. (:name r) (with-meta (interp-expr (:lhs r))
-                        {:automorphisms (count-automorphisms (:lhs r))})
-            (interp-expr (:rhs r)) (:rate r))
-     (Rule. (:name r) (with-meta (interp-expr (:rhs r))
-                        {:automorphisms (count-automorphisms (:rhs r))})
-            (interp-expr (:lhs r)) (:rate r))]
-    [(Rule. (:name r) (with-meta (interp-expr (:lhs r))
-                        {:automorphisms (count-automorphisms (:lhs r))})
-            (interp-expr (:rhs r)) (:rate r))]))
+    [(create-rule (:name r) (interp-expr (:lhs r)) (interp-expr (:rhs r)) (:rate r))
+     (create-rule (:name r) (interp-expr (:rhs r)) (interp-expr (:lhs r)) (:rate r))]
+    [(create-rule (:name r) (interp-expr (:lhs r)) (interp-expr (:rhs r)) (:rate r))]))
 
 (defn interp
   "Convert the parsed string into the corresponding clj-kappa data structures."

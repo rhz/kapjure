@@ -105,8 +105,9 @@
                  rate))
 (def rule-name (complex [rn (opt (conc (lit \') alpha-num-string (lit \')))]
                  (if (nil? rn) :unnamed-rule
-                     (second rn))))
-(def rule (complex [rn (opt rule-name)
+                     (apply-str (second rn)))))
+(def rule (complex [rn rule-name
+                    _ (opt ws)
                     lhs expression
                     rule-type arrow
                     rhs expression
