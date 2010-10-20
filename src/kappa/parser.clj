@@ -178,3 +178,4 @@
                       [(apply str (:remainder %2))])
               ;; initial state
               {:remainder (seq agent-str)}))
+

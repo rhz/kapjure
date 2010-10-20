@@ -1,14 +1,19 @@
 (ns kappa.tests.language
   (:use kappa.language
         kappa.raim
+        kappa.interp
+        kappa.misc
         [kappa.parser :only (parse-agent parse-expression parse-rule)]
         [clojure.contrib.test-is :only (is)])
-  (:import (kappa.language Agent Rule)))
+  (:import (kappa.language Agent Rule))
+  (:require [clojure.contrib.generic.math-functions :as math]))
 
-;; Test for modify-state
+
+;;; Test for modify-state
 (is (= (:states (modify-state (Agent. :a {:s "phos"} {})
                               :s "unphos"))
        {:s "unphos"}))
+
 
 ;;; Tests for match :agent
 ;; match
@@ -48,6 +53,7 @@
               (Agent. :a {:s "phos"} {:s :bounded})) ; a(s~phos!1)
        false))
 
+
 ;;; Tests for match :complex
 ;; match
 (def-agents
@@ -65,22 +71,24 @@
   (is (= (match [pa3] [a1 a2]) true)))
 ;; TODO more tests for match :complex
 
-;; Tests for interp
+
+;;; Tests for interp
 (is (= (interp (parse-agent "a(x!_)"))
        (Agent. "a" {"x" ""} {"x" :semi-link})))
-(is (= @(first (interp (parse-expression "a(x)")))
+(is (= @(ffirst (interp (parse-expression "a(x)")))
        (Agent. "a" {"x" ""} {"x" :free})))
-(is (= (:states @(first (interp (parse-expression "a(x!1), b(x!1)"))))
+(is (= (:states @(ffirst (interp (parse-expression "a(x!1), b(x!1)"))))
        {"x" ""}))
 ;; FIXME why first returns b(x~u!1)?
-(is (= (:name @(first (interp (parse-expression "a(x!1), b(x!1)"))))
+(is (= (:name @(ffirst (interp (parse-expression "a(x!1), b(x!1)"))))
        "b"))
-(is (= (:states @((:bindings @(first (interp (parse-expression "a(x~p!1), b(x~u!1)")))) "x"))
+(is (= (:states @((:bindings @(ffirst (interp (parse-expression "a(x~p!1), b(x~u!1)")))) "x"))
        {"x" "p"}))
-(is (= (:name @((:bindings @(first (interp (parse-expression "a(x~p!1), b(x~u!1)")))) "x"))
+(is (= (:name @((:bindings @(ffirst (interp (parse-expression "a(x~p!1), b(x~u!1)")))) "x"))
        "a"))
 
-;; Activation and Inhibition Maps
+
+;;; Activation and Inhibition Maps
 (let-rules [r1 "a -> b @ 1"
             r2 "b -> c @ 1"]
   (is (= (activation-map [r1 r2])
@@ -88,4 +96,14 @@
   (is (= (inhibition-map [r1 r2])
          {r1 [], r2 []})))
 ;; TODO write more tests for activation-map and inhibition-map
+
+
+;; Functions in misc
+(is (math/approx= (/ (apply + (for [_ (range 1000)]
+                                ;; count how many :b's the next 'for' produces
+                                (count (filter #{:b} (for [_ (range 100)]
+                                                       (choice {:a 0.3, :b 0.7}))))))
+                     (* 1000 100))
+                  0.7 ; it should be around this value
+                  0.1)) ; epsilon
 
