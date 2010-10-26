@@ -1,10 +1,11 @@
 (ns kappa.tests.language
-  (:use kappa.language
-        kappa.maps
-        kappa.interp
-        kappa.misc
+  (:use [kappa.language :only (match modify-state expression?)]
+        [kappa.maps :only (activation-map inhibition-map matching-and-lift-map)]
+        [kappa.interp :only (interp def-expressions let-expressions def-rules let-rules)]
+        [kappa.misc :only (choice)]
         [kappa.parser :only (parse-agent parse-expression parse-rule)]
-        [clojure.contrib.test-is :only (is)])
+        [clojure.contrib.test-is :only (is)]
+        :reload-all)
   (:import (kappa.language Agent Rule))
   (:require [clojure.contrib.generic.math-functions :as math]))
 
@@ -54,38 +55,36 @@
        false))
 
 
-;;; Tests for match :complex
+;;; Tests for match :expression
 ;; match
-(def-agents
-  pa1 {:name :a, :states {:s ""}, :bindings {:s pa2}} ; extended form
-  pa2 [:b {:s "phos"} {:s pa1}] ; compact form :)
-  a1 [:a {:s "unphos"} {:s a2}]
-  a2 [:b {:s "phos"} {:s a1}])
-(is (= (match [pa1 pa2] [a2 a1]) true))
+(def-expressions
+  p1 "a(s!1),b(s~phos!1)"
+  e1 "a(s~unphos!1),b(s~phos!1)")
+(is (expression? p1))
+(is (expression? e1))
+(is (= (match p1 e1) true))
 ;; don't match... name mismatch
-(def-agents a3 [:b {:s ""} {:s a2}])
-(is (= (match [pa1 pa2] [a3 a2]) false))
+(let-expressions [e2 "b(s~phos!1),b(s!1)"]
+  (is (= (match p1 e2) false)))
 
 ;; match
-(let-agents [pa3 [:a {:s ""} {:s :semi-link}]]
-  (is (= (match [pa3] [a1 a2]) true)))
-;; TODO more tests for match :complex
+(let-expressions [p2 "a(s!_)"]
+  (is (= (match p2 e1) true)))
+;; TODO more tests for match :expression
 
 
 ;;; Tests for interp
 (is (= (interp (parse-agent "a(x!_)"))
        (Agent. "a" {"x" ""} {"x" :semi-link})))
-(is (= @(ffirst (interp (parse-expression "a(x)")))
+(is (= (val (first (interp (parse-expression "a(x)"))))
        (Agent. "a" {"x" ""} {"x" :free})))
-(is (= (:states @(ffirst (interp (parse-expression "a(x!1), b(x!1)"))))
-       {"x" ""}))
-;; FIXME why first returns b(x~u!1)?
-(is (= (:name @(ffirst (interp (parse-expression "a(x!1), b(x!1)"))))
-       "b"))
-(is (= (:states @((:bindings @(ffirst (interp (parse-expression "a(x~p!1), b(x~u!1)")))) "x"))
-       {"x" "p"}))
-(is (= (:name @((:bindings @(ffirst (interp (parse-expression "a(x~p!1), b(x~u!1)")))) "x"))
-       "a"))
+
+(let-expressions [e3 "a(x!1), b(x!1)"
+                  e4 "a(x~p!1), b(x~u!1)"]
+  (is (= (-> e3 first val :name) "a"))
+  (is (= (-> e3 first val :states) {"x" ""}))
+  (is (= (:name (e4 ((-> e4 first val :bindings) "x"))) "b"))
+  (is (= (:states (e4 ((-> e4 first val :bindings) "x"))) {"x" "u"})))
 
 
 ;;; Activation and Inhibition Maps

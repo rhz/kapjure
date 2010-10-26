@@ -22,38 +22,25 @@
 
 (defn neighbours
   "Creates a map representing the neighbourhood of each symbol.
-  The returning map has agent-refs as keys and maps from
-  site-names to the refs of the bound agents as values."
-  [expr refs]
-  (let [agents-with-sites (filter (fn [[n [_ iface]]]
+  The returning map has ids as keys and maps from site-names to
+  the ids of the bound agents as values."
+  [ids2agents]
+  (let [agents-with-sites (filter (fn [[_ [_ iface]]]
                                     (not (= iface :empty-interface)))
-                                  (indexed expr)) ; and their indices
+                                  ids2agents)
         label-map (->> agents-with-sites
-                       (map (fn [[n [_ iface]]]
+                       (map (fn [[id [_ iface]]]
                               (->> iface
                                    ;; filter out the sites that has no bond label
                                    (filter (fn [[_ _ binding]] (string? binding)))
                                    (map (fn [[site-name _ binding]]
-                                          {binding [n site-name]}))
+                                          {binding [id site-name]}))
                                    (apply merge))))
                        (apply merge-with list))]
     (apply merge-with merge
-           (zipmap refs (repeat {})) ; make sure every ref gets a map :)
-           (for [[[n1 sn1] [n2 sn2]] (vals label-map)] ; sn stands for site-name
-             {(nth refs n1) {sn1 (nth refs n2)},
-              (nth refs n2) {sn2 (nth refs n1)}}))))
-
-(defn complex [a]
-  (pre-traverse (fn [a]
-                  (filter #(instance? clojure.lang.IDeref %)
-                          (vals (:bindings @a)))) a))
-
-(defn group-in-complexes [expr]
-  (loop [expr expr
-         groups []]
-    (let [remaining (filter (complement (set (apply concat groups))) expr)]
-      (if (empty? remaining) groups
-          (recur (rest remaining) (cons (complex (first remaining)) groups))))))
+           (zipmap (keys ids2agents) {})
+           (for [[[id1 sn1] [id2 sn2]] (vals label-map)] ; sn stands for site-name
+             {id1 {sn1 id2}, id2 {sn2 id1}}))))
 
 (defn interp-iface
   "Translate the parsed interface into the two maps required to construct a k-agent struct.
@@ -62,11 +49,10 @@
   expression, bound agent refs in the :bindings map must be provided externally (in nbs).
   See neighbours function."
   ([iface] (interp-iface iface {})) ; no bound agents
-  ([iface nbs] (if (= iface :empty-interface)
-                 [{}, {}] ; :states and :bindings are empty maps
-                 [(zipmap (map first iface) (map second iface)), ; :states
-                  (let [skw (filter #(keyword? (third %)) iface)] ; skw: sites with keywords :P
-                    (merge (zipmap (map first skw) (map third skw)) nbs))]))) ; :bindings
+  ([iface nbs] (if (= iface :empty-interface) [{} {}] ; :states and :bindings are empty maps
+                   [(zipmap (map first iface) (map second iface)), ; :states
+                    (let [sk (filter (comp keyword? third) iface)] ; sk: sites with keywords :P
+                      (merge (zipmap (map first sk) (map third sk)) nbs))]))) ; :bindings
 
 (defn interp-agent
   ([a] (interp-agent a {}))
@@ -76,20 +62,18 @@
 (defn interp-subexpr
   "Convert a parsed sub-expression into a seq of refs with the corresponding agents."
   [subexpr]
-  (let [refs (repeatedly (count subexpr) #(ref nil))
-        nbs (neighbours subexpr refs)]
-    (dosync
-     (dorun (map (fn [r a] (ref-set r (interp-agent a (nbs r))))
-                 refs subexpr)))
-    refs))
+  (let [ids (repeatedly (count subexpr) #(counter))
+        ids2agents (zipmap ids subexpr)
+        nbs (neighbours ids2agents)]
+    (into {} (map (fn [[id a]] [id (interp-agent a (nbs id))])
+                  ids2agents))))
 
 (defn interp-expr [expr]
   (let [subexprs (group-parsed-agents expr)]
     (->> (for [[factor subexpr] subexprs]
            (repeatedly factor #(interp-subexpr subexpr)))
-         (apply concat)
-         (apply concat)
-         (group-in-complexes))))
+         (apply concat) ;; remove lists introduced by repeatedly
+         (apply merge)))) ;; merge subexpressions
 
 (defn interp-rule [r]
   (if (= (r :rule-type) :bidirectional-rule)
@@ -107,47 +91,7 @@
 
 
 ;;; Macros
-;;; To define agents in a simple way
-;; TODO this function and its use in def-agents and let-agents need
-;;      to be tested in kappa.tests.language
-(defn create-agent [a]
-  (cond
-    (string? a) (interp-agent (parse-agent a))
-    (map? a) (Agent. (a :name) (a :states) (a :bindings))
-    (coll? a) (Agent. (nth a 0) (nth a 1) (nth a 2))
-    :else (throw (Exception. (str (class a) " cannot be cast to kappa.language.Agent")))))
-
-(defn create-agent-in-macro [a]
-  (cond
-    (string? a) `(interp-agent ~(parse-agent a))
-    (map? a) `(Agent. ~(a :name) ~(a :states) ~(a :bindings))
-    (coll? a) `(Agent. ~(nth a 0) ~(nth a 1) ~(nth a 2))
-    (symbol? a) `(create-agent ~a)
-    :else (throw (Exception. (str (class a) " cannot be cast to kappa.language.Agent")))))
-
-(defmacro def-agents
-  "Define multiple agents (that can be mutually recursive) in a convenient way.
-  Each agent can be defined using a vector, a map, a string or a symbol bound to any of them."
-  [& bindings]
-  (let [[vars exprs] (apply map list (partition 2 bindings))]
-    `(do
-       ~@(map (fn [v] `(def ~v (ref nil))) vars)
-       (dosync
-        ~@(map (fn [v e]
-                 `(ref-set ~v ~(create-agent-in-macro e)))
-               vars exprs)))))
-
-(defmacro let-agents
-  "Like let for agents definitions. See def-agents."
-  [bindings & body]
-  (let [[locals exprs] (apply map list (partition 2 bindings))]
-    `(let [~@(for [x (map (fn [v] `(~v (ref nil))) locals), y x] y)]
-       (dosync
-        ~@(map (fn [v e]
-                 `(ref-set ~v ~(create-agent-in-macro e)))
-               locals exprs))
-       ~@body)))
-
+;;; To define expressions and rules in a simple way
 (defmacro def-expressions
   [& bindings]
   (let [[vars exprs] (apply map list (partition 2 bindings))]
@@ -179,7 +123,4 @@
                           locals exprs)
                    y x] y)]
        ~@body)))
-
-;; Are def-agents and let-agents useful when we have the other four macros
-;; for expressions and rules?
 

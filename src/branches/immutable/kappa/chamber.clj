@@ -7,7 +7,6 @@
 ;;; Chambers
 ;; me gustaria que al terminar cada paso de simulacion se pudiese llamar una funcion
 ;; callback sobre los cambios y/o el estado nuevo de la simulacion
-;; esta funcion se le podria pasar a la funcion que haga la iteracion
 ;; esta funcion podria servir para actualizar el volumen u otras partes del Chamber
 (defrecord Chamber [rules mixture
                     time event-cnt clash-cnt
@@ -91,18 +90,17 @@
         (-> updated-chamber
             ;; meta cleanup first... so after the event the user can review the meta info
             (vary-meta merge {:added-agents [], :removed-agents [], :modified-agents []})
-            (partial action m) negative-update positive-update
+            (action m) negative-update positive-update
             (update-in [:time] #(+ % dt))
             (vary-meta merge {:executed-rule r})
             ((apply comp callbacks)))))))
-
-;; How can I have multiple mutually-referencing objects in one atom?
 
 ;; Tengo que encontrar una manera de guardar los cambios que realiza action
 ;; sobre la solucion, para asi despues poder pasarselo a negative-update,
 ;; positive-update y los callbacks.
 ;; Creo que la mejor manera es anhadiendo metadata al chamber cuando ejecuto
 ;; la accion de la regla.
+;; Talvez lo mejor sea realizar el positive y negative update en cada accion.
 
 ;; Hay que tener en mente que los compartimientos deben correr en paralelo y
 ;; debe existir una manera de pasar moleculas de un lado a otro y regresar en
