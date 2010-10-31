@@ -6,7 +6,7 @@
 
 ;;; Interpret: convert the parsed string into the data structures above
 ;;; See kappa.parser
-(defn group-parsed-agents
+(defn- group-parsed-agents
   "Group the parsed agents for further processing in a regular way.
   The output is a seq of subexpressions and their factors, i.e., a seq of [factor subexpr]."
   [expr]
@@ -20,7 +20,7 @@
       (coll? (first x)) (recur xs (concat x non-grouped) grouped) ; agent + factor
       :else (recur xs (cons x non-grouped) grouped)))) ; agent alone
 
-(defn neighbours
+(defn- neighbours
   "Creates a map representing the neighbourhood of each symbol.
   The returning map has ids as keys and maps from site-names to
   the ids of the bound agents as values."
@@ -42,7 +42,7 @@
            (for [[[id1 sn1] [id2 sn2]] (vals label-map)] ; sn stands for site-name
              {id1 {sn1 id2}, id2 {sn2 id1}}))))
 
-(defn interp-iface
+(defn- interp-iface
   "Translate the parsed interface into the two maps required to construct a k-agent struct.
   The output is a vector containing the two maps.
   Note: as the neighbourhood information requires knowledge of the other agents in the
@@ -54,12 +54,12 @@
                     (let [sk (filter (comp keyword? third) iface)] ; sk: sites with keywords :P
                       (merge (zipmap (map first sk) (map third sk)) nbs))]))) ; :bindings
 
-(defn interp-agent
+(defn- interp-agent
   ([a] (interp-agent a {}))
   ([a nbs] (let [[states bindings] (interp-iface (a 1) nbs)] ; (a 1) = agent's interface
              (Agent. (a 0) states bindings)))) ; (a 0) = agent's name
 
-(defn interp-subexpr
+(defn- interp-subexpr
   "Convert a parsed sub-expression into a seq of refs with the corresponding agents."
   [subexpr]
   (let [ids (repeatedly (count subexpr) #(counter))

@@ -5,6 +5,8 @@
 
 (def third #(nth % 2))
 
+(def xor (comp not =))
+
 (def counter (let [cnt (atom 0)]
                #(swap! cnt inc)))
 

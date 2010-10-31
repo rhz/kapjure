@@ -1,8 +1,8 @@
 (ns kappa.chamber
-  (:use kappa.maps
-        [kappa.misc :only (choice)]
+  (:use [kappa.misc :only (choice)]
         [clojure.contrib.math :only (expt)])
-  (:require [clojure.contrib.generic.math-functions :as math]))
+  (:require [kappa.maps :as maps]
+            [clojure.contrib.generic.math-functions :as math]))
 
 ;;; Chambers
 ;; me gustaria que al terminar cada paso de simulacion se pudiese llamar una funcion
@@ -11,68 +11,68 @@
 (defrecord Chamber [rules mixture
                     time event-cnt clash-cnt
                     volume stochastic-kcs activities ;; FIXME activities should be activity-map
-                    matching-map lift-map ram rim])
+                    matching-map lift-map ram rim observables])
 
-(defn update-volume [chamber new-volume]
-  (assoc chamber :volume (with-meta new-volume
-                           {:changed? true})))
+(defn- update-volume [chamber new-volume]
+  (-> chamber
+      (assoc :volume new-volume)
+      (vary-meta assoc-in [:volume-changed?] true)))
 
-(defn determ2stoch [volume rule]
-  (let [Avogadro 6.022e23
-        num-complexes (count (:lhs rule))]
+(defn- determ2stoch [volume rule]
+  (let [NAvogadro 6.022e23, num-complexes (count (:lhs rule))]
     (/ (* (expt volume (if (= num-complexes 0) 0
                            (- num-complexes 1)))
-          (:rate rule)
-          Avogadro)
+          (:rate rule) NAvogadro)
        (:automorphisms (meta (:lhs rule))))))
 
-(defn update-stochastic-kcs [chamber]
-  (if (:changed? (meta (:volume chamber)))
+(defn- update-stochastic-kcs [chamber]
+  (if (:volume-changed? (meta chamber))
     (-> chamber
-        (assoc :volume (with-meta (:volume chamber) {:changed? false}))
-        (assoc :stochastic-kcs (with-meta (map (partial determ2stoch (:volume chamber))
-                                               (:rules chamber))
-                                 {:changed? true})))
+        (vary-meta assoc-in [:volume-changed?] false)
+        (assoc :stochastic-kcs (map (partial determ2stoch (:volume chamber))
+                                    (:rules chamber)))
+        (vary-meta assoc-in [:kcs-changed?] true))
     chamber))
 
-(defn activity [ms k aut] ; matchings and stochastic kinetic constants
+(defn- activity [ms k aut] ; matchings and stochastic kinetic constants
   (/ (apply * k (map #(count (val %)) ms)) aut))
 
-(defn update-activities [chamber]
-  (if (:changed? (meta (:stochastic-kcs chamber)))
+(defn- update-activities [chamber]
+  (if (:kcs-changed? (meta chamber))
     (let [mm (:matching-map chamber), kcs (:stochastic-kcs chamber)]
       (-> chamber
-          (assoc :stochastic-kcs (with-meta kcs {:changed? false}))
+          (vary-meta assoc-in [:kcs-changed?] false)
           (assoc :activities (map #(activity (mm %) (kcs %) (-> % :lhs meta :automorphisms))
                                   (:rules chamber)))))
     chamber))
 
-(defn create-chamber [rule-set mixture volume time]
-  (let [[mm lf] (matching-and-lift-map rule-set mixture)]
-    (-> (Chamber. rule-set mixture time 0 0 ; rules, mixture and counters
-                  (with-meta volume {:changed? true}) [] [] ; kcs and activities are computed later
-                  mm lf (activation-map rule-set) (inhibition-map rule-set))
+(defn create-chamber [rule-set mixture volume time observables]
+  (let [[mm lf] (maps/matching-and-lift-map rule-set mixture)]
+    (-> (Chamber. rule-set mixture time 0 0 volume [] [] ; kcs and activities are computed later
+                  mm lf (maps/activation-map rule-set) (maps/inhibition-map rule-set) observables)
+        (with-meta {:volume-changed? true})
         update-stochastic-kcs
         update-activities)))
 
-(defn time-advance [activities]
+(defn- time-advance [activities]
   (/ (math/log (/ 1 (rand)))
      (apply + (vals activities))))
 
-(defn select-rule [activities]
+(defn- select-rule [activities]
   (choice activities))
 
-(defn select-matching [matchings]
+(defn- select-matching [matchings]
   (apply merge (for [[c m] matchings]
                  {c (choice m)})))
 
-(defn clash? [m]
+(defn- clash? [m]
   (let [agents (for [c m, a c] a)]
     (every? #(= (count %) 1)
             (map #(filter #{%} agents) agents))))
 
-(defn negative-update [chamber] nil)
-(defn positive-update [chamber] nil)
+(defn- negative-update [chamber] nil)
+
+(defn- positive-update [chamber] nil)
 
 (defn gen-event
   "Generates a new event from chamber. You can additionally provide any
@@ -84,7 +84,7 @@
         r (select-rule (:activities updated-chamber))
         m (select-matching ((:matching-map updated-chamber) r))]
     (if (clash? m)
-      (update-in updated-chamber [:clash-cnt] inc) ;; increment clash-cnt and exit
+      (update-in updated-chamber [:clash-cnt] inc) ; increment clash-cnt and exit
       (let [dt (time-advance (:activities updated-chamber))
             action (:action r)]
         (-> updated-chamber
