@@ -1,4 +1,6 @@
-(ns kappa.misc)
+(ns ^{:doc ""
+      :author "Ricardo Honorato-Zimmer"}
+  kappa.misc)
 
 (defn indexed [s] ; this isn't used anywhere: candidate to be deleted
   (map vector (iterate inc 0) s))
@@ -9,6 +11,11 @@
 
 (def counter (let [cnt (atom 0)]
                #(swap! cnt inc)))
+
+(defn factorial [n]
+  (loop [n n, acc 1]
+    (if (= n 1) acc
+        (recur (dec n) (* acc n)))))
 
 (defn pre-traverse
   "Traverses a graph depth-first preorder from start, neighbors being a

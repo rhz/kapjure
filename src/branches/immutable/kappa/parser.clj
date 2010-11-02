@@ -2,6 +2,8 @@
   (:use name.choi.joshua.fnparse
         clojure.contrib.error-kit))
 
+;; TODO update to fnparse 3.x (hound)
+
 (deferror parse-error [] [state message message-args]
   {:msg (str "Parser error: "
              (apply format message message-args))
@@ -157,7 +159,7 @@
               ;; initial state
               {:remainder (seq rule-str)}))
 
-(defn parse-expression [expr-str]
+(defn parse-expr [expr-str]
   (rule-match expression
               ;; failure fn
               #(raise parse-error %1 "invalid expression \"%s\""

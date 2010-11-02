@@ -1,13 +1,12 @@
-(ns kappa.chamber
-  (:use [kappa.misc :only (choice)]
-        [clojure.contrib.math :only (expt)])
+(ns ^{:doc ""
+      :author "Ricardo Honorato-Zimmer"}
+  kappa.chamber
   (:require [kappa.maps :as maps]
+            [kappa.misc :as misc]
+            [clojure.contrib.math :as m]
             [clojure.contrib.generic.math-functions :as math]))
 
 ;;; Chambers
-;; me gustaria que al terminar cada paso de simulacion se pudiese llamar una funcion
-;; callback sobre los cambios y/o el estado nuevo de la simulacion
-;; esta funcion podria servir para actualizar el volumen u otras partes del Chamber
 (defrecord Chamber [rules mixture
                     time event-cnt clash-cnt
                     volume stochastic-kcs activities ;; FIXME activities should be activity-map
@@ -19,18 +18,23 @@
       (vary-meta assoc-in [:volume-changed?] true)))
 
 (defn- determ2stoch [volume rule]
-  (let [NAvogadro 6.022e23, num-complexes (count (:lhs rule))]
-    (/ (* (expt volume (if (= num-complexes 0) 0
-                           (- num-complexes 1)))
-          (:rate rule) NAvogadro)
-       (:automorphisms (meta (:lhs rule))))))
+  (let [n-avogadro 6.022e23
+        num-complexes (count (:lhs rule)) ; num-complexes = reaction's order
+        rate (:rate rule)
+        aut (-> rule :lhs meta :automorphisms)]
+    (cond
+      (zero? num-complexes) (/ (* rate volume) n-avogadro)
+      (= num-complexes 1) rate
+      (> num-complexes 1) (/ (* rate aut (m/expt n-avogadro (dec num-complexes)))
+                             (m/expt volume (dec num-complexes))))))
 
 (defn- update-stochastic-kcs [chamber]
   (if (:volume-changed? (meta chamber))
     (-> chamber
         (vary-meta assoc-in [:volume-changed?] false)
-        (assoc :stochastic-kcs (map (partial determ2stoch (:volume chamber))
-                                    (:rules chamber)))
+        (assoc :stochastic-kcs (zipmap (:rules chamber)
+                                       (map (partial determ2stoch (:volume chamber))
+                                            (:rules chamber))))
         (vary-meta assoc-in [:kcs-changed?] true))
     chamber))
 
@@ -46,7 +50,7 @@
                                   (:rules chamber)))))
     chamber))
 
-(defn create-chamber [rule-set mixture volume time observables]
+(defn make-chamber [rule-set mixture volume time observables]
   (let [[mm lf] (maps/matching-and-lift-map rule-set mixture)]
     (-> (Chamber. rule-set mixture time 0 0 volume [] [] ; kcs and activities are computed later
                   mm lf (maps/activation-map rule-set) (maps/inhibition-map rule-set) observables)
@@ -59,26 +63,28 @@
      (apply + (vals activities))))
 
 (defn- select-rule [activities]
-  (choice activities))
+  (misc/choice activities))
 
-(defn- select-matching [matchings]
+(defn select-matching [matchings]
   (apply merge (for [[c m] matchings]
-                 {c (choice m)})))
+                 {c (misc/choice m)})))
 
 (defn- clash? [m]
   (let [agents (for [c m, a c] a)]
     (every? #(= (count %) 1)
             (map #(filter #{%} agents) agents))))
 
-(defn- negative-update [chamber] nil)
+(defn- negative-update [chamber]
+  chamber)
 
-(defn- positive-update [chamber] nil)
+(defn- positive-update [chamber]
+  chamber)
 
 (defn gen-event
   "Generates a new event from chamber. You can additionally provide any
-  function that takes two args, the chamber and the executed rule, and returns
-  a new chamber. These callback functions are called at the end of the iteration
-  and can communicate with the organizer."
+  function that takes two args, the chamber and the executed rule, and returns a
+  new chamber. These callback functions are called at the end of the iteration and
+  can update chamber's properties (e.g. volume) or communicate with the organizer."
   [chamber & callbacks]
   (let [updated-chamber (update-activities chamber)
         r (select-rule (:activities updated-chamber))

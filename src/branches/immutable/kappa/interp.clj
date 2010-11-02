@@ -1,8 +1,7 @@
 (ns kappa.interp
-  (:use kappa.misc
-        [kappa.language :only (create-rule)]
-        [kappa.parser :only (parse-agent parse-expression parse-rule)])
-  (:import (kappa.language Agent Rule)))
+  (:require [kappa.language :as lang]
+            [kappa.misc :as misc]
+            [kappa.parser :as p]))
 
 ;;; Interpret: convert the parsed string into the data structures above
 ;;; See kappa.parser
@@ -51,18 +50,18 @@
   ([iface] (interp-iface iface {})) ; no bound agents
   ([iface nbs] (if (= iface :empty-interface) [{} {}] ; :states and :bindings are empty maps
                    [(zipmap (map first iface) (map second iface)), ; :states
-                    (let [sk (filter (comp keyword? third) iface)] ; sk: sites with keywords :P
-                      (merge (zipmap (map first sk) (map third sk)) nbs))]))) ; :bindings
+                    (let [sk (filter (comp keyword? misc/third) iface)] ; sk: sites with keywords
+                      (merge (zipmap (map first sk) (map misc/third sk)) nbs))]))) ; :bindings
 
 (defn- interp-agent
   ([a] (interp-agent a {}))
   ([a nbs] (let [[states bindings] (interp-iface (a 1) nbs)] ; (a 1) = agent's interface
-             (Agent. (a 0) states bindings)))) ; (a 0) = agent's name
+             (lang/make-agent (a 0) states bindings)))) ; (a 0) = agent's name
 
 (defn- interp-subexpr
   "Convert a parsed sub-expression into a seq of refs with the corresponding agents."
   [subexpr]
-  (let [ids (repeatedly (count subexpr) #(counter))
+  (let [ids (repeatedly (count subexpr) #(misc/counter))
         ids2agents (zipmap ids subexpr)
         nbs (neighbours ids2agents)]
     (into {} (map (fn [[id a]] [id (interp-agent a (nbs id))])
@@ -76,10 +75,13 @@
          (apply merge)))) ;; merge subexpressions
 
 (defn interp-rule [r]
-  (if (= (r :rule-type) :bidirectional-rule)
-    [(create-rule (:name r) (interp-expr (:lhs r)) (interp-expr (:rhs r)) (:rate r))
-     (create-rule (:name r) (interp-expr (:rhs r)) (interp-expr (:lhs r)) (:rate r))]
-    [(create-rule (:name r) (interp-expr (:lhs r)) (interp-expr (:rhs r)) (:rate r))]))
+  (let [lhs #(interp-expr (:lhs r)),
+        rhs #(interp-expr (:rhs r)),
+        name (:name r), rate (:rate r),
+        rule-maker #(lang/make-rule name %1 %2 rate)]
+    (if (= (r :rule-type) :bidirectional-rule)
+      (vector (rule-maker (lhs) (rhs)) (rule-maker (rhs) (lhs)))
+      (vector (rule-maker (lhs) (rhs))))))
 
 (defn interp
   "Convert the parsed string into the corresponding clj-kappa data structures."
@@ -92,16 +94,16 @@
 
 ;;; Macros
 ;;; To define expressions and rules in a simple way
-(defmacro def-expressions
+(defmacro def-exprs
   [& bindings]
   (let [[vars exprs] (apply map list (partition 2 bindings))]
-    `(do ~@(map (fn [v e] `(def ~v (interp-expr (parse-expression ~e))))
+    `(do ~@(map (fn [v e] `(def ~v (interp-expr (p/parse-expr ~e))))
                 vars exprs))))
 
-(defmacro let-expressions
+(defmacro let-exprs
   [bindings & body]
   (let [[locals exprs] (apply map list (partition 2 bindings))]
-    `(let [~@(for [x (map (fn [v e] `(~v (interp-expr (parse-expression ~e))))
+    `(let [~@(for [x (map (fn [v e] `(~v (interp-expr (p/parse-expr ~e))))
                           locals exprs)
                    y x] y)]
        ~@body)))
@@ -109,7 +111,7 @@
 (defmacro def-rules
   [& bindings]
   (let [[vars exprs] (apply map list (partition 2 bindings))]
-    `(do ~@(map (fn [v e] `(let [r# (interp-rule (parse-rule ~e))]
+    `(do ~@(map (fn [v e] `(let [r# (interp-rule (p/parse-rule ~e))]
                              (def ~v (nth r# 0))
                              (def ~(symbol (str v "_op")) (nth r# 1 nil))))
                 vars exprs))))
@@ -117,7 +119,7 @@
 (defmacro let-rules
   [bindings & body]
   (let [[locals exprs] (apply map list (partition 2 bindings))]
-    `(let [~@(for [x (map (fn [v e] `[r# (interp-rule (parse-rule ~e))
+    `(let [~@(for [x (map (fn [v e] `[r# (interp-rule (p/parse-rule ~e))
                                       ~v (nth r# 0)
                                       ~(symbol (str v "_op")) (nth r# 1 nil)])
                           locals exprs)

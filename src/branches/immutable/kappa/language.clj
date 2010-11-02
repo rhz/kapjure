@@ -1,7 +1,9 @@
-(ns kappa.language
-  (:use [kappa.misc :only (pre-traverse indexed counter xor)]
-        [clojure.contrib.combinatorics :only (cartesian-product)])
-  (:require [clojure.set :as set]))
+(ns ^{:doc ""
+      :author "Ricardo Honorato-Zimmer"}
+  kappa.language
+  (:require [kappa.misc :as misc]
+            [clojure.contrib.combinatorics :as comb]
+            [clojure.set :as set]))
 
 ;;;; Proposal for a new name: Kapjure
 
@@ -13,6 +15,9 @@
 ;; of the tags: :free, :unspecified, :semi-link
 ;; or the id of the bound agent
 ;; ids are assigned by the expression
+
+(defn make-agent [name states bindings]
+  (Agent. name states bindings))
 
 (defmethod print-method Agent [a w]
   (let [sites (map (fn [[site state]]
@@ -58,7 +63,7 @@
 (defn complex
   "Returns the ids of the complex to which initial-agent belongs."
   [initial-agent expr]
-  (map first (pre-traverse #(get-neighbours % expr) initial-agent)))
+  (map first (misc/pre-traverse #(get-neighbours % expr) initial-agent)))
 
 (defn get-complexes
   "Returns a seq with the ids of the complexes in expr."
@@ -77,7 +82,7 @@
 
 ;; probably only patterns need to know the set of all complexes
 (defn make-pattern [expr]
-  (with-meta expr {:complexes (get-complexes expr)}))
+  (vary-meta expr assoc :complexes (get-complexes expr)))
 
 (defn expression?
   "Check if obj is a Kappa expression."
@@ -117,7 +122,7 @@
 (defmethod match :expression [p e] ; p stands for pattern, e for expression
   ;; stores all matchings for every agent in p (lazyly :)
   (let [matchings (map (fn [p] (filter #(match p (val %)) e)) (vals p))
-        match-comb (apply cartesian-product matchings) ; matching combinations
+        match-comb (apply comb/cartesian-product matchings) ; matching combinations
         n (count p)]
     ;; try every combination of matchings checking if the neighbours corresponds
     (loop [left match-comb]
@@ -147,51 +152,42 @@
 (defrecord Rule [name lhs rhs rate action])
 ;; rate is the deterministic kinetic constant
 
-;; TODO compile-rule and elementary action functions
-;; Las reglas deben contener en su estructura las acciones elementales que realiza.
-;; Cada accion elemental debe ser una funcion que reciba la mixture y
-;; la parte del matching map de cada uno de los complejos del lhs de la regla
-;; y debe devolver una nueva mixture y matching map (y lift map?).
-;;
-;; Ademas action debe entregar la informacion de que pares (agente, sitio) modifica
-;; la regla, para poder calcular el activation-map e inhibition-map.
-
 (defn modify-state
   "Returns a function that modifies the state of site s in agent
   ((matching c) a) to new-state."
-  [c a s new-state] ; c is a seq of lhs agent ids. a is a lhs agent id.
+  [c [a-id a] s new-state] ; c is a seq of lhs agent ids. a is a lhs agent id.
   ;; matching is a map from lhs complex to a map from lhs agents ids to mixture agents ids
   (fn [chamber matching]
-    (let [ma ((matching c) a)]
+    (let [ma ((matching c) a-id)]
       (-> chamber
           (assoc-in [:mixture ma :states s] new-state)
           (vary-meta (fn [m] (update-in m [:modified-agents]
-                                        #(conj % [(-> chamber :mixture ma) s]))))))))
+                                        #(conj % [((:mixture chamber) ma) s]))))))))
 
 (defn bind-agents
   "Returns a function that binds agents a1 and a2 through
   sites s1 and s2, respectively."
-  [c1 a1 s1 c2 a2 s2]
+  [c1 [a1-id a1] s1 c2 [a2-id a2] s2]
   (fn [chamber matching]
-    (let [ma1 ((matching c1) a1), ma2 ((matching c2) a2)]
+    (let [ma1 ((matching c1) a1-id), ma2 ((matching c2) a2-id)]
       (-> chamber
           (assoc-in [:mixture ma1 :bindings s1] ma2)
           (assoc-in [:mixture ma2 :bindings s2] ma1)
           (vary-meta (fn [m] (update-in m [:modified-agents]
-                                        #(conj (conj % [(-> chamber :mixture ma1) s1])
-                                               [(-> chamber :mixture ma2) s2]))))))))
+                                        #(into % [[((:mixture chamber) ma1) s1]
+                                                  [((:mixture chamber) ma2) s2]]))))))))
 
 (defn unbind-agents
   "Returns a function that unbinds agents a1 and a2."
-  [c1 a1 s1 c2 a2 s2]
+  [c1 [a1-id a1] s1 c2 [a2-id a2] s2]
   (fn [chamber matching]
-    (let [ma1 ((matching c1) a1), ma2 ((matching c2) a2)]
+    (let [ma1 ((matching c1) a1-id), ma2 ((matching c2) a2-id)]
       (-> chamber
           (assoc-in [:mixture ma1 :bindings s1] :free)
           (assoc-in [:mixture ma2 :bindings s2] :free)
           (vary-meta (fn [m] (update-in m [:modified-agents]
-                                        #(conj (conj % [(-> chamber :mixture ma1) s1])
-                                               [(-> chamber :mixture ma2) s2]))))))))
+                                        #(into % [[((:mixture chamber) ma1) s1]
+                                                  [((:mixture chamber) ma2) s2]]))))))))
 
 (defn create
   "Returns a function that creates an agent a in chamber's mixture.
@@ -201,16 +197,16 @@
     ;; TODO should I allow to create bound agents? what if you want to create a complex?
     (fn [chamber _]
       (-> chamber
-          (assoc-in [:mixture (counter)] a)
+          (assoc-in [:mixture (misc/counter)] a)
           (vary-meta (fn [m] (update-in m [:added-agents] #(conj % a))))))
     (throw (Exception. "Agents created by rules can't be bound."))))
 
 (defn destroy
   "Returns a function that destroys agent a in chamber's mixture."
-  [c a]
+  [c [a-id a]]
   (fn [chamber matching]
-    (let [ma ((matching c) a),
-          nbs (filter number? (-> chamber :mixture ma :bindings vals))]
+    (let [ma ((matching c) a-id),
+          nbs (filter number? (-> ((:mixture chamber) ma) :bindings vals))]
       (reduce (fn [chamber nb]
                 (let [site (first (filter (comp #{ma} val) (:bindings nb)))]
                   (-> chamber
@@ -221,7 +217,7 @@
                   (vary-meta (fn [m] (update-in m [:removed-agents] #(conj % ma)))))
               nbs))))
 
-(defn pairing-lhs-rhs
+(defn pair-exprs
   "Returns a seq of three things:
   1. A seq of pairs [lhs oae, rhs oae] which will be considered to be equivalent.
   2. A seq of rhs oaes that doesn't have a counterpart in lhs. These agents will be
@@ -230,11 +226,13 @@
      destroyed by the rule."
   [lhs rhs]
   (let [names (map #(set (map (comp :name val) %)) [lhs rhs])
+        
         [lhs-agents-by-name rhs-agents-by-name]
         (map (fn [expr names]
                (apply merge (for [name names]
                               {name (filter #(= name (-> % val :name)) expr)})))
              [lhs rhs] names)]
+    
     (->> (for [name (apply set/union names)]
            (let [lhs-agents (lhs-agents-by-name name), n (count lhs-agents),
                  rhs-agents (rhs-agents-by-name name), m (count rhs-agents)]
@@ -251,6 +249,12 @@
          (apply map vector)
          (map (partial apply concat)))))
 
+(defn get-lhs-agent [id lhs-rhs]
+  (ffirst (filter (comp #{id} key second) lhs-rhs)))
+
+(defn get-rhs-agent [id lhs-rhs]
+  (second (first (filter (comp #{id} key first) lhs-rhs))))
+
 (defn get-modified-sites [lhs-rhs]
   (->> (for [agent-pair lhs-rhs]
          (let [[[lhs-id {lstates :states, lbindings :bindings} :as lhs-agent]
@@ -263,7 +267,7 @@
                 (when-not (or (= ls rs) (nil? rs))
                   {:modified [lhs-agent site rs]})
                 (when (and (not (number? lb)) (number? rb))
-                  {:bound {(ffirst (filter (comp #{rb} key second) lhs-rhs)) [lhs-agent site]}})
+                  {:bound {(get-lhs-agent rb lhs-rhs) [lhs-agent site]}})
                 (when (and (number? lb) (not (number? rb)))
                   {:unbound {lb [lhs-agent site]}}))))))
        (apply concat)
@@ -275,86 +279,58 @@
        mss))
 
 (defn- get-bind-agents-fns [{bss :bound} lhs]
-  (let [bss (into {} (for [[a2 [a1 s1]] bss]
+  (let [bss (apply merge bss)
+        bss (into {} (for [[a2 [a1 s1]] bss]
                        {#{a1 a2} [s1 (-> a1 bss second)]}))]
-    (for [[[a1 a2] [s1 s2]] bss]
-      (bind-agents (complex a1 lhs) a1 s1 (complex a2 lhs) a2 s2))))
+    (for [[as [s1 s2]] bss]
+      (let [a1 (first as), a2 (second as)]
+        (bind-agents (complex a1 lhs) a1 s1 (complex a2 lhs) a2 s2)))))
 
 (defn- get-unbind-agents-fns [{uss :unbound} lhs]
-  (get-bind-agents-fns uss lhs))
-
-(defn- modified-bound-and-unbound
-  "Look for differences between lhs and rhs. It receives a seq of pairs [lhs oae, rhs oae]
-  and returns a seq of functions modify-state, bind-agents and unbind-agents."
-  [lhs-rhs lhs rhs]
-  (->> (let [done-sites (atom [])]
-         (for [agent-pair lhs-rhs]
-           (let [[[lhs-id {name :name, lstates :states, lbindings :bindings} :as lhs-agent]
-                  [rhs-id {rstates :states, rbindings :bindings}]] agent-pair] ; rname = lname
-             (for [site (set/union (-> lstates keys set)
-                                   (-> rstates keys set))]
-               (let [ls (lstates site), lb (lbindings site),
-                     rs (rstates site), rb (rbindings site)]
-                 (vector (cond
-                           (some #{[lhs-id site]} @done-sites) nil
-                           
-                           (xor (= lb :semi-link) (= rb :semi-link))
-                           (throw (Exception. "Semi-links must be balanced in lhs and rhs."))
-                           
-                           (and (not (number? lb)) (number? rb)) ; bind
-                           ;; nb-site is the site at the other end of the link
-                           (let [nb-site (key (first (filter #(= (val %) rhs-id)
-                                                             (-> rb rhs :bindings))))
-                                 ;; lhs-nb is the equivalent to rb
-                                 lhs-nb (ffirst (filter (comp #{rb} second) lhs-rhs))]
-                             ;; register the bound agent in done-sites
-                             (swap! done-sites #(conj % [lhs-nb nb-site]))
-                             ;; bind args: [c1 a1 s1 c2 a2 s2]
-                             (bind-agents (complex lhs-agent lhs) lhs-id site
-                                          (complex lhs-nb lhs) lhs-nb nb-site))
-                           
-                           (and (number? lb) (not (number? rb))) ; unbind
-                           (let [nb-site (key (first (filter #(= (val %) lhs-id)
-                                                             (-> lb lhs :bindings))))]
-                             ;; register the unbound agent in done-sites
-                             (swap! done-sites #(conj % [lb nb-site]))
-                             ;; unbind args: [c1 a1 s1 c2 a2 s2]
-                             (unbind-agents (complex lhs-agent lhs) lhs-id site
-                                            (complex lb lhs) lb nb-site))
-                           
-                           :else nil)
-                         
-                         (cond
-                           (or (= ls rs) (nil? rs)) nil ; rs is nil if it's not written in rhs
-                           ;; create args: [c a s new-state]
-                           :else (modify-state (complex lhs-agent lhs) lhs-id site rs))))))))
-       (apply concat)
-       (apply concat)
-       (apply concat)))
+  (get-bind-agents-fns {:bound uss} lhs))
 
 (defn elementary-actions [lhs rhs]
-  (let [[lhs-rhs created-agents removed-agents] (pairing-lhs-rhs lhs rhs)
+  (let [[lhs-rhs created-agents removed-agents] (pair-exprs lhs rhs)
         modified-sites (get-modified-sites lhs-rhs)
-        
+
         [modify-state-fns bind-agents-fns unbind-agents-fns]
-        ((juxt get-modify-state-fns get-bind-agents-fns get-unbind-agents-fns) modified-sites lhs)]
+        ((juxt get-modify-state-fns get-bind-agents-fns get-unbind-agents-fns) modified-sites lhs)
+        
+        ;; get every modified site
+        {:keys [bound unbound modified]} modified-sites
+        
+        [[bss-lhs bss-rhs] [uss-lhs uss-rhs]]
+        (map (comp (juxt keys vals) (partial apply merge)) [bound unbound])
+        
+        mss (apply concat
+                   (for [[lhs-agent site _] modified]
+                     ;; every modified site! in lhs and rhs!
+                     [[lhs-agent site] [(get-rhs-agent (key lhs-agent)) site]]))
+        
+        site-extractor #(for [[id {states :states} :as oae] %, site (keys states)]
+                          [oae site])
+        css (site-extractor created-agents), rss (site-extractor removed-agents)]
     
-    {:elementary-actions (concat (map create created-agents)
-                                 (map #(destroy (complex % lhs) %) removed-agents)
-                                 modify-state-fns bind-agents-fns unbind-agents-fns)
-     :modified-sites modified-sites}))
+    {:elementary-actions (concat modify-state-fns bind-agents-fns unbind-agents-fns
+                                 (map create created-agents)
+                                 (map #(destroy (complex % lhs) %) removed-agents))
+     :modified-sites (concat mss bss-lhs bss-rhs uss-lhs uss-rhs css rss)}))
 
 (defn action [lhs rhs]
-  (with-meta
-    (fn [chamber matching]
-      (let [{keys [:elementary-actions :modified-sites]} (elementary-actions lhs rhs)]
-        ((apply comp (map #(partial % matching) elementary-actions)) chamber)))
-    {:modified-sites modified-sites}))
+  (let [{eas :elementary-actions, mss :modified-sites} (elementary-actions lhs rhs)]
+    (with-meta
+      (fn [chamber matching]
+        ((apply comp (map #(fn [chamber] (% chamber matching)) eas)) chamber))
+      {:modified-sites mss})))
 
-;; TODO
-(defn count-automorphisms [expr] 1)
+;; TODO: isomorphism fn... meanwhile:
+(defn count-automorphisms [expr]
+  (misc/factorial 
+   (reduce + 1
+           (for [[c1 c2] (comb/combinations (map #(subexpr % expr) (get-complexes expr)) 2)]
+             (if (match c1 c2) 1 0)))))
 
-(defn create-rule [name lhs rhs rate]
+(defn make-rule [name lhs rhs rate]
   (Rule. name (make-pattern (with-meta lhs {:automorphisms (count-automorphisms lhs)}))
          (make-pattern rhs) rate (action lhs rhs)))
 
