@@ -1,5 +1,5 @@
 ## Kapjure
-### Capturing the combinatorial complexity of biological systems
+#### Capturing the combinatorial complexity of biological systems
 
 Kapjure is an open-source <a href="http://clojure.org/">Clojure</a> library for simulating and analyzing
 <a href="http://www.kappalanguage.org">Kappa</a> models.
