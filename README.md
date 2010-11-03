@@ -1,6 +1,7 @@
-## clj-kappa
+## Kapjure
+### Capturing the combinatorial complexity of biological systems
 
-clj-kappa is an open-source Clojure library for simulating and analyzing
+Kapjure is an open-source <a href="http://clojure.org/">Clojure</a> library for simulating and analyzing
 <a href="http://www.kappalanguage.org">Kappa</a> models.
 
 #### License
@@ -13,11 +14,11 @@ Just execute the following command at the terminal:
 
     git clone git://github.com/rhz/clj-kappa.git
 
-To download clj-kappa's source code into a directory called clj-kappa under the current directory.
+To download clj-kappa's source code into a directory called `clj-kappa` under the current directory.
 
 #### Using it
 
-First, put the directory clj-kappa/src in your *Java CLASSPATH*.
+First, put the directory `clj-kappa/src` in your *Java CLASSPATH*.
 Then, open a Clojure REPL and when you are at it:
 
     user=> (require '[kappa :as k])
