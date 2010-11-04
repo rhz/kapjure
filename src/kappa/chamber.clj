@@ -43,11 +43,13 @@
 
 (defn- update-activities [chamber]
   (if (:kcs-changed? (meta chamber))
-    (let [mm (:matching-map chamber), kcs (:stochastic-kcs chamber)]
+    (let [mm (:matching-map chamber), kcs (:stochastic-kcs chamber), rules (:rules chamber)]
       (-> chamber
           (vary-meta assoc-in [:kcs-changed?] false)
-          (assoc :activities (map #(activity (mm %) (kcs %) (-> % :lhs meta :automorphisms))
-                                  (:rules chamber)))))
+          (assoc :activities (zipmap rules
+                                     (map (fn [r] (activity (mm r) (kcs r)
+                                                            (-> r :lhs meta :automorphisms)))
+                                           rules)))))
     chamber))
 
 (defn make-chamber [rule-set mixture volume time observables]
@@ -70,9 +72,9 @@
                  {c (misc/choice m)})))
 
 (defn- clash? [m]
-  (let [agents (for [c m, a c] a)]
-    (every? #(= (count %) 1)
-            (map #(filter #{%} agents) agents))))
+  (let [agent-ids (for [[c matchings] m, [lhs-agent mixture-agent] matchings]
+                    mixture-agent)]
+    (not (every? #(= (val %) 1) (frequencies agent-ids)))))
 
 (defn- negative-update [chamber]
   chamber)
@@ -99,7 +101,7 @@
             (action m) negative-update positive-update
             (update-in [:time] #(+ % dt))
             (vary-meta merge {:executed-rule r})
-            ((apply comp callbacks)))))))
+            ((apply comp identity callbacks)))))))
 
 ;; Tengo que encontrar una manera de guardar los cambios que realiza action
 ;; sobre la solucion, para asi despues poder pasarselo a negative-update,

@@ -81,7 +81,7 @@
         rule-maker #(lang/make-rule name %1 %2 rate)]
     (if (= (r :rule-type) :bidirectional-rule)
       (vector (rule-maker (lhs) (rhs)) (rule-maker (rhs) (lhs)))
-      (vector (rule-maker (lhs) (rhs))))))
+      (rule-maker (lhs) (rhs)))))
 
 (defn interp
   "Convert the parsed string into the corresponding clj-kappa data structures."
@@ -111,18 +111,24 @@
 (defmacro def-rules
   [& bindings]
   (let [[vars exprs] (apply map list (partition 2 bindings))]
-    `(do ~@(map (fn [v e] `(let [r# (interp-rule (p/parse-rule ~e))]
-                             (def ~v (nth r# 0))
-                             (def ~(symbol (str v "_op")) (nth r# 1 nil))))
+    `(do ~@(map (fn [v e]
+                  (if (vector? v)
+                    `(let [r# (interp-rule (p/parse-rule ~e))]
+                       (def ~(v 0) (nth r# 0))
+                       (def ~(v 1) (nth r# 1)))
+                    `(def ~v (interp-rule (p/parse-rule ~e)))))
                 vars exprs))))
 
 (defmacro let-rules
   [bindings & body]
   (let [[locals exprs] (apply map list (partition 2 bindings))]
-    `(let [~@(for [x (map (fn [v e] `[r# (interp-rule (p/parse-rule ~e))
-                                      ~v (nth r# 0)
-                                      ~(symbol (str v "_op")) (nth r# 1 nil)])
-                          locals exprs)
-                   y x] y)]
+    `(let [~@(apply concat
+                    (map (fn [v e]
+                           (if (vector? v)
+                             `[r# (interp-rule (p/parse-rule ~e))
+                               ~(v 0) (nth r# 0)
+                               ~(v 1) (nth r# 1)]
+                             `[~v (interp-rule (p/parse-rule ~e))]))
+                         locals exprs))]
        ~@body)))
 

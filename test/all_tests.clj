@@ -86,7 +86,7 @@
 ;;;; language.clj
 ;;; Rules
 (interp/let-rules [r1 "a(x), b(x) -> b(x) @ 1"]
-  (let [[lhs-rhs created-agents removed-agents] (lang/corr-exprs (:lhs r1) (:rhs r1))
+  (let [[lhs-rhs created-agents removed-agents] (lang/pair-exprs (:lhs r1) (:rhs r1))
         {eas :elementary-actions} (lang/elementary-actions (:lhs r1) (:rhs r1))]
     (is (= lhs-rhs [[(-> r1 :lhs second) (-> r1 :rhs first)]]))
     (is (= created-agents '()))
@@ -102,11 +102,13 @@
         (is (= mm {r1 {[a-r1] [{a-r1 a-e1}], [b-r1] [{b-r1 b-e1}]}}))
         (is (= lf {a-e1 {"x" {:rule r1, :complex [a-r1], :embeddings [a-e1]}},
                    b-e1 {"x" {:rule r1, :complex [b-r1], :embeddings [b-e1]}}}))
-        (let [chamber (chamber/make-chamber [r1] e1 1 0 [])
-              chamber-mm (:matching-map chamber)
-              new-chamber ((:action r1) chamber (chamber/select-matching (chamber-mm r1)))]
-          (is (= mm chamber-mm))
-          (is (= (vals (:mixture new-chamber)) (vals e2))))))))
+        (let [chamber1 (chamber/make-chamber [r1] e1 1 0 [])
+              chamber1-mm (:matching-map chamber1)
+              chamber2 ((:action r1) chamber1 (chamber/select-matching (chamber1-mm r1)))
+              chamber3 (chamber/gen-event chamber1)]
+          (is (= mm chamber1-mm))
+          (is (= (vals (:mixture chamber2)) (vals e2)))
+          (is (= (vals (:mixture chamber3)) (vals e2))))))))
 
 
 ;;;; maps.clj

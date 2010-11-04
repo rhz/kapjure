@@ -48,12 +48,6 @@
 ;; as it names suggests, they contain just one agent
 ;; TODO expressions could be compiled to objects using defrecord/reify for faster access
 
-(defn get-state [oae s]
-  (-> oae key :states s))
-
-(defn get-binding [oae s]
-  (-> oae key :bindings s))
-
 (defn get-neighbours
   "Get the subexpression containing the neighbours of a."
   [[id a] expr]
@@ -158,6 +152,7 @@
   [c [a-id a] s new-state] ; c is a seq of lhs agent ids. a is a lhs agent id.
   ;; matching is a map from lhs complex to a map from lhs agents ids to mixture agents ids
   (fn [chamber matching]
+    ;;(println "Modifying state:" matching)
     (let [ma ((matching c) a-id)]
       (-> chamber
           (assoc-in [:mixture ma :states s] new-state)
@@ -169,6 +164,7 @@
   sites s1 and s2, respectively."
   [c1 [a1-id a1] s1 c2 [a2-id a2] s2]
   (fn [chamber matching]
+    ;;(println "Binding:" matching)
     (let [ma1 ((matching c1) a1-id), ma2 ((matching c2) a2-id)]
       (-> chamber
           (assoc-in [:mixture ma1 :bindings s1] ma2)
@@ -181,6 +177,7 @@
   "Returns a function that unbinds agents a1 and a2."
   [c1 [a1-id a1] s1 c2 [a2-id a2] s2]
   (fn [chamber matching]
+    ;;(println "Unbinding:" matching)
     (let [ma1 ((matching c1) a1-id), ma2 ((matching c2) a2-id)]
       (-> chamber
           (assoc-in [:mixture ma1 :bindings s1] :free)
@@ -196,6 +193,7 @@
   (if (every? #(or (= % :free) (= % :unspecified)) (:bindings a)) ; a can't be bound
     ;; TODO should I allow to create bound agents? what if you want to create a complex?
     (fn [chamber _]
+      ;;(println "Creating:" a)
       (-> chamber
           (assoc-in [:mixture (misc/counter)] a)
           (vary-meta (fn [m] (update-in m [:added-agents] #(conj % a))))))
@@ -205,6 +203,7 @@
   "Returns a function that destroys agent a in chamber's mixture."
   [c [a-id a]]
   (fn [chamber matching]
+    ;;(println "Destroying:" matching)
     (let [ma ((matching c) a-id),
           nbs (filter number? (-> ((:mixture chamber) ma) :bindings vals))]
       (reduce (fn [chamber nb]
