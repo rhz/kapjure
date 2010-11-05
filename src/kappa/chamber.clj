@@ -3,6 +3,7 @@
   kappa.chamber
   (:require [kappa.maps :as maps]
             [kappa.misc :as misc]
+            [clojure.set :as set]
             [clojure.contrib.math :as m]
             [clojure.contrib.generic.math-functions :as math]))
 
@@ -39,7 +40,7 @@
     chamber))
 
 (defn- activity [ms k aut] ; matchings and stochastic kinetic constants
-  (/ (apply * k (map #(count (val %)) ms)) aut))
+  (/ (apply * k (map (comp count val) ms)) aut))
 
 (defn- update-activities [chamber]
   (if (:kcs-changed? (meta chamber))
@@ -72,12 +73,38 @@
                  {c (misc/choice m)})))
 
 (defn- clash? [m]
-  (let [agent-ids (for [[c matchings] m, [lhs-agent mixture-agent] matchings]
-                    mixture-agent)]
+  (let [agent-ids (for [[c matchings] m, [lhs-agent mixture-agent] matchings] mixture-agent)]
     (not (every? #(= (val %) 1) (frequencies agent-ids)))))
 
 (defn- negative-update [chamber]
-  chamber)
+  (let [lift-map (:lift-map chamber), m (meta chamber),
+        ras (:removed-agents m), mss (:modified-sites m),
+        rss (map vector ras (map (comp keys lift-map) ras)),
+        r-c-cods (apply concat
+                        (for [[ma ms] mss] ((lift-map ma) ms))
+                        (for [ra ras] (apply concat (vals (lift-map ra))))),
+        cod-mates (for [{r :rule, c :complex, cod :codomain} r-c-cods,
+                        [a-id s] cod]
+                    [a-id s r c cod])]
+    (-> chamber
+        (update-in [:matching-map]
+                   #(reduce (fn [mm {r :rule, c :complex, cod :codomain}]
+                              (update-in mm [r c]
+                                         (fn [m]
+                                           (let [emb (map (comp set (partial map first)) cod)]
+                                             (filter (comp #{emb} vals) m)))))
+                            % r-c-cods))
+        (update-in [:lift-map]
+                   #(reduce (fn [lm [a-id s r c cod]]
+                              (update-in lm [a-id s]
+                                         (fn [r-c-cod-set]
+                                           (set/difference
+                                            r-c-cod-set #{{:rule r, :complex c, :codomain cod}}))))
+                            % cod-mates))
+        (update-in [:lift-map]
+                   #(reduce (fn [lm [a x]]
+                              (update-in lm [a] dissoc x))
+                            % (apply concat rss mss))))))
 
 (defn- positive-update [chamber]
   chamber)
@@ -90,16 +117,18 @@
   [chamber & callbacks]
   (let [updated-chamber (update-activities chamber)
         r (select-rule (:activities updated-chamber))
-        m (select-matching ((:matching-map updated-chamber) r))]
+        m (select-matching ((:matching-map updated-chamber) r))
+        dt (time-advance (:activities updated-chamber))]
     (if (clash? m)
-      (update-in updated-chamber [:clash-cnt] inc) ; increment clash-cnt and exit
-      (let [dt (time-advance (:activities updated-chamber))
-            action (:action r)]
+      (-> updated-chamber
+          (update-in [:clash-cnt] inc) ; increment clash-cnt
+          (update-in [:time] + dt)) ; and time
+      (let [action (:action r)]
         (-> updated-chamber
             ;; meta cleanup first... so after the event the user can review the meta info
-            (vary-meta merge {:added-agents [], :removed-agents [], :modified-agents []})
+            (vary-meta merge {:added-agents [], :removed-agents [], :modified-sites []})
             (action m) negative-update positive-update
-            (update-in [:time] #(+ % dt))
+            (update-in [:time] + dt)
             (vary-meta merge {:executed-rule r})
             ((apply comp identity callbacks)))))))
 

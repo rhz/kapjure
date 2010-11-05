@@ -124,23 +124,34 @@
 ;;; Matching map and Lift map
 
 (defn matching-and-lift-map [rule-set mixture]
-  (let [ms (apply map vector ; put what belongs to the matching-map together (same for lift map)
-                  (for [r rule-set, cr (lang/get-complexes (:lhs r))] ; for each pair [r, cr]
-                    ;; cr, matchings and cm are seqs of ids
-                    (let [cr-expr (lang/subexpr cr (:lhs r))
-                          ;; filter the complexes in mixture that match cr
-                          matchings (keep (fn [cm] (lang/match cr-expr (lang/subexpr cm mixture)))
-                                          (lang/get-complexes mixture))]
-                      (vector
-                       ;; for the matching map
-                       {r {cr matchings}}
-                       ;; for the lift map
-                       (for [cm (map vals matchings), a-id cm, x (-> a-id mixture :states keys)]
-                         {a-id {x {:rule r, :complex cr, :embeddings cm}}})))))]
-    [(apply merge-with (partial merge-with vector) (first ms))
-     (apply merge-with ; if the same agent is found twice merge
-            (partial merge-with vector) ; the sites using vector
-            (apply concat (second ms)))]))
+  (->> (for [r rule-set, cr (lang/get-complexes (:lhs r))] ; for each pair [r, cr]
+         ;; cr and cm are seqs of ids... matchings is a seq of sets of ids
+         (let [cr-expr (lang/subexpr cr (:lhs r))
+               aux (keep (fn [cm] (codomain cr-expr (lang/subexpr cm mixture)))
+                         (lang/get-complexes mixture))
+               cods (map (comp (partial map (fn [[[id a] s]] [id s])) vals) aux)
+               matchings (map (fn [cr->cm]
+                                (into {} (map (fn [[[[id1 a1] s1] [[id2 a2] s2]]]
+                                                [id1 id2]) cr->cm))) aux)]
+           ;;  matchings (map (comp set (partial map first)) cods)]
+           (vector
+            ;; for the matching map
+            {r {cr matchings}}
+            ;; for the lift map
+            (for [cod cods, [a-id s] cod]
+              {a-id {s {:rule r, :complex cr, :codomain cod}}}))))
+       (apply map vector) ; put what belongs to the matching-map together in a vector
+       ;; and what belongs to the lift-map together in another vector
+       ;; note: map could be used for the next thing too in this way: (map #(%1 %2) [f1 f2])
+       ((juxt (comp (partial apply merge-with merge) ; if the same rule is found twice in the
+                    ;; matching map, merge the maps {cr matchings}, as cr won't appear twice
+                    first)
+              (comp (partial apply merge-with ; if the same agent is found twice in the lift map,
+                             ;; merge the maps associated with its sites using vector and then set
+                             ;; (as oppposed to the matching map, sites may appear twice)
+                             (partial merge-with (comp set vector)))
+                    (partial apply concat) ;; but first make just one big list of all the maps
+                    second)))))
 
 ;;; TODO Observables map: like the matching map
 

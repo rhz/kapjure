@@ -5,8 +5,6 @@
             [clojure.contrib.combinatorics :as comb]
             [clojure.set :as set]))
 
-;;;; Proposal for a new name: Kapjure
-
 ;;; Agents
 (defrecord Agent [name states bindings])
 ;; states is a map from site names (as keywords)
@@ -57,7 +55,7 @@
 (defn complex
   "Returns the ids of the complex to which initial-agent belongs."
   [initial-agent expr]
-  (map first (misc/pre-traverse #(get-neighbours % expr) initial-agent)))
+  (set (map first (misc/pre-traverse #(get-neighbours % expr) initial-agent))))
 
 (defn get-complexes
   "Returns a seq with the ids of the complexes in expr."
@@ -65,7 +63,7 @@
   (if (:complexes (meta expr)) (:complexes (meta expr))
       (loop [expr expr
              groups []]
-        (let [remaining (into {} (remove #((set (apply concat groups)) (val %)) expr))]
+        (let [remaining (into {} (remove (comp (set (apply concat groups)) key) expr))]
           (if (empty? remaining) groups
               (recur (rest remaining) (conj groups (complex (first remaining) remaining))))))))
 
@@ -156,8 +154,8 @@
     (let [ma ((matching c) a-id)]
       (-> chamber
           (assoc-in [:mixture ma :states s] new-state)
-          (vary-meta (fn [m] (update-in m [:modified-agents]
-                                        #(conj % [((:mixture chamber) ma) s]))))))))
+          (vary-meta (fn [m] (update-in m [:modified-sites]
+                                        conj [((:mixture chamber) ma) s])))))))
 
 (defn bind-agents
   "Returns a function that binds agents a1 and a2 through
@@ -169,9 +167,9 @@
       (-> chamber
           (assoc-in [:mixture ma1 :bindings s1] ma2)
           (assoc-in [:mixture ma2 :bindings s2] ma1)
-          (vary-meta (fn [m] (update-in m [:modified-agents]
-                                        #(into % [[((:mixture chamber) ma1) s1]
-                                                  [((:mixture chamber) ma2) s2]]))))))))
+          (vary-meta (fn [m] (update-in m [:modified-sites]
+                                        into [[((:mixture chamber) ma1) s1]
+                                              [((:mixture chamber) ma2) s2]])))))))
 
 (defn unbind-agents
   "Returns a function that unbinds agents a1 and a2."
@@ -182,9 +180,9 @@
       (-> chamber
           (assoc-in [:mixture ma1 :bindings s1] :free)
           (assoc-in [:mixture ma2 :bindings s2] :free)
-          (vary-meta (fn [m] (update-in m [:modified-agents]
-                                        #(into % [[((:mixture chamber) ma1) s1]
-                                                  [((:mixture chamber) ma2) s2]]))))))))
+          (vary-meta (fn [m] (update-in m [:modified-sites]
+                                        into [[((:mixture chamber) ma1) s1]
+                                              [((:mixture chamber) ma2) s2]])))))))
 
 (defn create
   "Returns a function that creates an agent a in chamber's mixture.
@@ -196,7 +194,7 @@
       ;;(println "Creating:" a)
       (-> chamber
           (assoc-in [:mixture (misc/counter)] a)
-          (vary-meta (fn [m] (update-in m [:added-agents] #(conj % a))))))
+          (vary-meta (fn [m] (update-in m [:added-agents] conj a)))))
     (throw (Exception. "Agents created by rules can't be bound."))))
 
 (defn destroy
@@ -204,16 +202,16 @@
   [c [a-id a]]
   (fn [chamber matching]
     ;;(println "Destroying:" matching)
-    (let [ma ((matching c) a-id),
+    (let [ma ((matching c) a-id)
           nbs (filter number? (-> ((:mixture chamber) ma) :bindings vals))]
       (reduce (fn [chamber nb]
                 (let [site (first (filter (comp #{ma} val) (:bindings nb)))]
                   (-> chamber
                       (assoc-in [:mixture nb :bindings site] :free)
-                      (vary-meta (fn [m] (update-in m [:modified-agents] #(conj % [nb site])))))))
+                      (vary-meta (fn [m] (update-in m [:modified-sites] conj [nb site]))))))
               (-> chamber
-                  (update-in [:mixture] #(dissoc % ma))
-                  (vary-meta (fn [m] (update-in m [:removed-agents] #(conj % ma)))))
+                  (update-in [:mixture] dissoc ma)
+                  (vary-meta (fn [m] (update-in m [:removed-agents] conj ma))))
               nbs))))
 
 (defn pair-exprs

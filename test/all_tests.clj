@@ -93,15 +93,13 @@
     (is (= removed-agents [(-> r1 :lhs first)]))
     (is (= (count eas) 1))
     (interp/let-exprs [e1 "a(x), b(x)", e2 "b(x)"]
-      (let [[mm lf] (maps/matching-and-lift-map [r1] e1)
-            lhs (:lhs r1)
-            a-e1 (-> e1 first key)
-            a-r1 (-> lhs first key)
-            b-e1 (-> e1 second key)
-            b-r1 (-> lhs second key)]
-        (is (= mm {r1 {[a-r1] [{a-r1 a-e1}], [b-r1] [{b-r1 b-e1}]}}))
-        (is (= lf {a-e1 {"x" {:rule r1, :complex [a-r1], :embeddings [a-e1]}},
-                   b-e1 {"x" {:rule r1, :complex [b-r1], :embeddings [b-e1]}}}))
+      (let [[mm lf] (maps/matching-and-lift-map [r1] e1), lhs (:lhs r1),
+            ;; a-e1, a-r1, b-e1 and b-r1 are ids
+            a-e1 (-> e1 first key), a-r1 (-> lhs first key),
+            b-e1 (-> e1 second key), b-r1 (-> lhs second key)]
+        (is (= mm {r1 {#{a-r1} [{a-r1 a-e1}], #{b-r1} [{b-r1 b-e1}]}}))
+        (is (= lf {a-e1 {"x" {:rule r1, :complex #{a-r1}, :codomain [[a-e1 "x"]]}},
+                   b-e1 {"x" {:rule r1, :complex #{b-r1}, :codomain [[b-e1 "x"]]}}}))
         (let [chamber1 (chamber/make-chamber [r1] e1 1 0 [])
               chamber1-mm (:matching-map chamber1)
               chamber2 ((:action r1) chamber1 (chamber/select-matching (chamber1-mm r1)))
