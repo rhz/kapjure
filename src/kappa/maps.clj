@@ -1,10 +1,9 @@
-(ns ^{:doc ""
+(ns ^{:doc "Fns to create the activation map, inhibition map, matching map and lift map."
       :author "Ricardo Honorato-Zimmer"}
   kappa.maps
   (:require [kappa.language :as lang]
             [kappa.misc :as misc]
             [clojure.contrib.condition :as c]
-            [clojure.contrib.duck-streams :as duck-streams]
             [clojure.set :as set]))
 
 ;;; Activation and Inhibition map
@@ -29,32 +28,32 @@
                                   (and (= b1 :semi-link) (number? b2)) [site b2]
                                   (and (= b2 :semi-link) (number? b1)) [site b1]
                                   (and (number? b1) (number? b2)
-                                       (= (key (lang/get-lhs-agent b2 e1-e2)) b1)) [site b1]
+                                       (= (key (lang/get-lhs-oae b2 e1-e2)) b1)) [site b1]
                                   :else (c/raise :type :unmixable-agents)))))]
       (lang/make-agent name states bindings))
     (handle :unmixable-agents nil)))
 
 (defn- create-mixed-expr [e1 e2]
   (let [[e1-e2 & left] (lang/pair-exprs e1 e2)]
-    (loop [e1-e2 e1-e2,
+    (loop [agent-pairs e1-e2,
            ids-map (zipmap (apply concat (map keys left)) (repeatedly #(misc/counter))),
            result (into {} (apply concat
                                   (map (partial map (fn [[id a]] [(ids-map id) a])) left)))]
-      (if (empty? e1-e2)
+      (if (empty? agent-pairs)
         (zipmap (keys result)
-                (map #(update-in (val %) [:bindings]
-                                 (fn [b] (zipmap (keys b) (replace ids-map (vals b))))) result))
+                (doall (map #(update-in (val %) [:bindings]
+                                 (fn [b] (zipmap (keys b) (replace ids-map (vals b))))) result)))
 
-        (let [[oae1 oae2] (first e1-e2)]
+        (let [[oae1 oae2] (first agent-pairs)]
           (if-let [mixed-agent (mix (val oae1) (val oae2) e1-e2)]
             (let [id (misc/counter)]
-              (recur (rest e1-e2)
+              (recur (rest agent-pairs)
                      (into ids-map [{(key oae1) id} {(key oae2) id}])
                      (conj result {id mixed-agent})))
           
             (let [id1 (misc/counter), new-oae1 {id1 (val oae1)},
                   id2 (misc/counter), new-oae2 {id2 (val oae2)}]
-              (recur (rest e1-e2)
+              (recur (rest agent-pairs)
                      (into ids-map [{(key oae1) id1} {(key oae2) id2}])
                      (into result [new-oae1 new-oae2])))))))))
 
@@ -62,23 +61,23 @@
   "Returns a map from pairs [oae, site] in p to pairs [oae, site] in e that matches."
   [p e]
   (apply merge
-         (let [e-complexes (map lang/subexpr (lang/get-complexes e) (repeat e))]
-           (for [p-complex (map lang/subexpr (lang/get-complexes p) (repeat p)),
+         (let [e-complexes (map (partial lang/subexpr e) (lang/get-complexes e))]
+           (for [p-complex (map (partial lang/subexpr p) (lang/get-complexes p)),
                  matched-complex (keep (partial lang/match p-complex) e-complexes),
                  [pa-id pa :as p-oae] p-complex,
                  pa-site (-> pa :states keys)]
              (let [[ea-id ea :as e-oae] (first
-                                         (lang/subexpr (vector (matched-complex pa-id)) e))]
+                                         (lang/subexpr e (vector (matched-complex pa-id))))]
                {[p-oae pa-site] [e-oae pa-site]})))))
 
 (defn activates? [r1 r2]
   (let [rhs1 (:rhs r1), lhs2 (:lhs r2),
         mss (-> r1 :action meta :modified-sites),
         S (create-mixed-expr rhs1 lhs2),
-        [rhs1->S lhs2->S] (map codomain [rhs1 lhs2] (repeat S))
-        cod (apply set/intersection (map (comp set vals) [rhs1->S lhs2->S]))
-        dom (set (keep identity (for [[pa-site ea-site] rhs1->S]
-                                  (when (cod ea-site) pa-site))))]
+        [rhs1->S lhs2->S] (map codomain [rhs1 lhs2] (repeat S)),
+        cod (apply set/intersection (map (comp set vals) [rhs1->S lhs2->S])),
+        dom (set (for [[pa-site ea-site] rhs1->S :when (cod ea-site)]
+                   pa-site))]
     (some dom mss)))
 
 (defn activation-map [rules]
@@ -92,10 +91,10 @@
     (let [lhs1 (:lhs r1), lhs2 (:lhs r2),
           mss (-> r1 :action meta :modified-sites),
           S (create-mixed-expr lhs1 lhs2),
-          [lhs1->S lhs2->S] (map codomain [lhs1 lhs2] (repeat S))
-          cod (apply set/intersection (map (comp set vals) [lhs1->S lhs2->S]))
-          dom (set (keep identity (for [[pa-site ea-site] lhs1->S]
-                                    (when (cod ea-site) pa-site))))]
+          [lhs1->S lhs2->S] (map codomain [lhs1 lhs2] (repeat S)),
+          cod (apply set/intersection (map (comp set vals) [lhs1->S lhs2->S])),
+          dom (set (for [[pa-site ea-site] lhs1->S :when (cod ea-site)]
+                     pa-site))]
       (some dom mss))))
 
 (defn inhibition-map [rules]
@@ -103,31 +102,14 @@
          (for [r1 rules]
            {r1 (filter (partial inhibits? r1) rules)})))
 
-(defn map2dot [output ram rim]
-  (->> (concat ["digraph G {"
-                "  node [shape=box];"]
-               (mapcat (fn [kv]
-                         (let [activating-rule-name (:name (key kv))]
-                           (map #(str "  " activating-rule-name " -> " (:name %) ";")
-                                (val kv))))
-                       ram)
-               (mapcat (fn [kv]
-                         (let [inhibiting-rule-name (:name (key kv))]
-                           (map #(str "  " inhibiting-rule-name " -> " (:name %)
-                                      " [color=red,arrowhead=tee];")
-                                (val kv))))
-                       rim)
-               ["}"])
-       (duck-streams/write-lines output)))
-
 
 ;;; Matching map and Lift map
 
 (defn matching-and-lift-map [rule-set mixture]
   (->> (for [r rule-set, cr (lang/get-complexes (:lhs r))] ; for each pair [r, cr]
          ;; cr and cm are seqs of ids... matchings is a seq of sets of ids
-         (let [cr-expr (lang/subexpr cr (:lhs r))
-               aux (keep (fn [cm] (codomain cr-expr (lang/subexpr cm mixture)))
+         (let [cr-expr (lang/subexpr (:lhs r) cr)
+               aux (keep (fn [cm] (codomain cr-expr (lang/subexpr mixture cm)))
                          (lang/get-complexes mixture))
                cods (map (comp (partial map (fn [[[id a] s]] [id s])) vals) aux)
                matchings (map (fn [cr->cm]
@@ -139,7 +121,7 @@
             {r {cr matchings}}
             ;; for the lift map
             (for [cod cods, [a-id s] cod]
-              {a-id {s {:rule r, :complex cr, :codomain cod}}}))))
+              {a-id {s [{:rule r, :complex cr, :codomain cod}]}}))))
        (apply map vector) ; put what belongs to the matching-map together in a vector
        ;; and what belongs to the lift-map together in another vector
        ;; note: map could be used for the next thing too in this way: (map #(%1 %2) [f1 f2])
@@ -149,7 +131,7 @@
               (comp (partial apply merge-with ; if the same agent is found twice in the lift map,
                              ;; merge the maps associated with its sites using vector and then set
                              ;; (as oppposed to the matching map, sites may appear twice)
-                             (partial merge-with (comp set vector)))
+                             (partial merge-with concat))
                     (partial apply concat) ;; but first make just one big list of all the maps
                     second)))))
 

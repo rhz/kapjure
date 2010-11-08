@@ -1,6 +1,6 @@
-(ns ^{:doc ""
+(ns ^{:doc "Tests for Kapjure"
       :author "Ricardo Honorato-Zimmer"}
-  test.all-tests
+  all-tests
   (:use [clojure.contrib.test-is :only [is]])
   (:require [kappa.language :as lang]
             [kappa.maps :as maps]
@@ -51,24 +51,6 @@
                    (lang/make-agent :a {:s "phos"} {:s :bounded})) ; a(s~phos!1)
        false))
 
-;;; Tests for match :expression
-;; match
-(interp/def-exprs
-  p1 "a(s!1),b(s~phos!1)"
-  e1 "a(s~unphos!1),b(s~phos!1)")
-(is (lang/expression? p1))
-(is (lang/expression? e1))
-(is (= (boolean (lang/match p1 e1)) true))
-;; don't match... name mismatch
-(interp/let-exprs [e2 "b(s~phos!1),b(s!1)"]
-  (is (= (boolean (lang/match p1 e2)) false)))
-
-;; match
-(interp/let-exprs [p2 "a(s!_)"]
-  (is (= (boolean (lang/match p2 e1)) true)))
-;; TODO more tests for match :expression
-
-
 ;;;; interp.clj
 (is (= (interp/interp (parser/parse-agent "a(x!_)"))
        (lang/make-agent "a" {"x" ""} {"x" :semi-link})))
@@ -83,8 +65,36 @@
   (is (= (:states (e4 ((-> e4 first val :bindings) "x"))) {"x" "u"})))
 
 
-;;;; language.clj
-;;; Rules
+;;; Tests for match :expression
+;; match
+(interp/def-exprs
+  p1 "a(s!1),b(s~phos!1)"
+  e1 "a(s~unphos!1),b(s~phos!1)")
+(is (lang/expression? p1))
+(is (lang/expression? e1))
+(is (= (boolean (lang/match p1 e1)) true))
+;; don't match... name mismatch
+(interp/let-exprs [e2 "b(s~phos!1),b(s!1)"]
+  (is (= (boolean (lang/match p1 e2)) false)))
+;; match
+(interp/let-exprs [p2 "a(s!_)"]
+  (is (= (boolean (lang/match p2 e1)) true)))
+;; TODO more tests for match :expression
+
+
+;;;; maps.clj
+;;; Activation and Inhibition Maps
+(interp/let-rules [r1 "a(x) -> b(x) @ 1"
+                   r2 "b(x) -> c(x) @ 1"]
+  (is (= (maps/activation-map [r1 r2])
+         {r1 [r2], r2 []}))
+  (is (= (maps/inhibition-map [r1 r2])
+         {r1 [], r2 []})))
+;; TODO write more tests for activation-map and inhibition-map
+
+
+;;;; language.clj and chamber.clj
+;; Destroy agent
 (interp/let-rules [r1 "a(x), b(x) -> b(x) @ 1"]
   (let [[lhs-rhs created-agents removed-agents] (lang/pair-exprs (:lhs r1) (:rhs r1))
         {eas :elementary-actions} (lang/elementary-actions (:lhs r1) (:rhs r1))]
@@ -98,24 +108,69 @@
             a-e1 (-> e1 first key), a-r1 (-> lhs first key),
             b-e1 (-> e1 second key), b-r1 (-> lhs second key)]
         (is (= mm {r1 {#{a-r1} [{a-r1 a-e1}], #{b-r1} [{b-r1 b-e1}]}}))
-        (is (= lf {a-e1 {"x" {:rule r1, :complex #{a-r1}, :codomain [[a-e1 "x"]]}},
-                   b-e1 {"x" {:rule r1, :complex #{b-r1}, :codomain [[b-e1 "x"]]}}}))
+        (is (= lf {a-e1 {"x" [{:rule r1, :complex #{a-r1}, :codomain [[a-e1 "x"]]}]},
+                   b-e1 {"x" [{:rule r1, :complex #{b-r1}, :codomain [[b-e1 "x"]]}]}}))
         (let [chamber1 (chamber/make-chamber [r1] e1 1 0 [])
               chamber1-mm (:matching-map chamber1)
               chamber2 ((:action r1) chamber1 (chamber/select-matching (chamber1-mm r1)))
               chamber3 (chamber/gen-event chamber1)]
           (is (= mm chamber1-mm))
-          (is (= (vals (:mixture chamber2)) (vals e2)))
-          (is (= (vals (:mixture chamber3)) (vals e2))))))))
+          (is (= (-> chamber2 :mixture vals set) (-> e2 vals set)))
+          (is (= (-> chamber3 :mixture vals set) (-> e2 vals set)))
+          (is (= (:matching-map chamber3) (->> chamber3 :mixture
+                                               (maps/matching-and-lift-map [r1])
+                                               first)))
+          (is (= (:lift-map chamber3) (->> chamber3 :mixture
+                                           (maps/matching-and-lift-map [r1])
+                                           second))))))))
 
+;; Create agent
+(interp/let-rules [r1 "a(x) -> a(x), b(x) @ 1"]
+  (interp/let-exprs [e1 "a(x)", e2 "a(x), b(x)"]
+    (let [chamber1 (chamber/make-chamber [r1] e1 1 0 [])
+          chamber2 (chamber/gen-event chamber1)]
+      (is (= (-> chamber2 :mixture vals set) (-> e2 vals set)))
+      (is (= (:matching-map chamber2) (->> chamber2 :mixture
+                                           (maps/matching-and-lift-map [r1])
+                                           first)))
+      (is (= (:lift-map chamber2) (->> chamber2 :mixture
+                                       (maps/matching-and-lift-map [r1])
+                                       second))))))
 
-;;;; maps.clj
-;;; Activation and Inhibition Maps
-(interp/let-rules [r1 "a(x) -> b(x) @ 1"
-                   r2 "b(x) -> c(x) @ 1"]
-  (is (= (maps/activation-map [r1 r2])
-         {r1 [r2], r2 []}))
-  (is (= (maps/inhibition-map [r1 r2])
-         {r1 [], r2 []})))
-;; TODO write more tests for activation-map and inhibition-map
+;; Modify state
+(interp/let-rules [r1 "a(x~u!1), b(x!1) -> a(x~p!1), b(x!1) @ 1"]
+  (interp/let-exprs [e1 "a(x~u!1), b(x!1)", e2 "a(x~p!1), b(x!1)"]
+    (let [chamber1 (chamber/make-chamber [r1] e1 1 0 [])
+          chamber2 (chamber/gen-event chamber1)]
+      (is (lang/match (:mixture chamber2) e2))
+      (is (= (:matching-map chamber2) (->> chamber2 :mixture
+                                           (maps/matching-and-lift-map [r1])
+                                           first))))))
+
+;; Bind agents
+(interp/let-rules [r1 "a(x~u), b(x) -> a(x~u!1), b(x!1) @ 1"]
+  (interp/let-exprs [e1 "a(x~u), b(x)", e2 "a(x~u!1), b(x!1)"]
+    (let [chamber1 (chamber/make-chamber [r1] e1 1 0 [])
+          chamber2 (chamber/gen-event chamber1)]
+      (is (lang/match (:mixture chamber2) e2))
+      (is (= (:matching-map chamber2) (->> chamber2 :mixture
+                                           (maps/matching-and-lift-map [r1])
+                                           first))))))
+
+;; Unbind agents
+(interp/let-rules [r1 "a(x~p!1), b(x!1) -> a(x~p), b(x) @ 1"]
+  (interp/let-exprs [e1 "a(x~p!1), b(x!1)", e2 "a(x~p), b(x)"]
+    (let [chamber1 (chamber/make-chamber [r1] e1 1 0 [])
+          chamber2 (chamber/gen-event chamber1)]
+      (is (lang/match (:mixture chamber2) e2))
+      (is (= (:matching-map chamber2) (->> chamber2 :mixture
+                                           (maps/matching-and-lift-map [r1])
+                                           first))))))
+
+;;; Simulation
+(interp/let-rules [r1 "a(x) -> b(x) @ 1"]
+  (interp/let-exprs [e1 "1000 * a(x)"]
+    (let [initial-chamber (chamber/make-chamber [r1] e1 1 0 [])
+          sim (take 101 (iterate chamber/gen-event initial-chamber))]
+      (is (= (count (filter (fn [[_ {name :name}]] (= name "a")) (:mixture (last sim)))) 900)))))
 
