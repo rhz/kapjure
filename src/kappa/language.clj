@@ -271,13 +271,12 @@
        mss))
 
 (let [common-fn (fn [ss lhs f]
-                  (for [[as [s1 s2]] (apply merge
-                                            (for [[a2 a1 s1] ss
+                  (for [site-pair (into #{} (for [[a2 a1 s1] ss
                                                   :let [s2 (->> ss (filter (comp #{[a1 a2]}
                                                                                  #(take 2 %)))
                                                                 first misc/third)]]
-                                              {#{a1 a2} [s1 s2]}))]
-                    (let [a1 (first as), a2 (second as)]
+                                              #{[a1 s1] [a2 s2]}))]
+                    (let [[a1 s1] (first site-pair), [a2 s2] (second site-pair)]
                       (f (complex lhs a1) a1 s1 (complex lhs a2) a2 s2))))]
   (defn- get-bind-agents-fns [{bss :bound} lhs]
     (common-fn bss lhs bind-agents))

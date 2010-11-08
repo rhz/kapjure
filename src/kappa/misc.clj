@@ -33,16 +33,19 @@
     (step [start]
           (conj seen start))))
 
-(defn choice
+(defmulti choice
   "Randomly chooses one key according to the finite probability
   distribution given by the values of m. If m is a vector, the
   distribution is assumed to be uniform."
-  [m]
-  (let [m (if (map? m) m
-              (zipmap m (repeat 1)))]
-    (let [r (rand (apply + (vals m)))]
-      (loop [[[k w] & kws] (seq m)
-             sum 0]
-        (if (or (nil? kws) (< r (+ sum w))) k
-            (recur kws (+ sum w)))))))
+  class)
+
+(defmethod choice clojure.lang.IPersistentMap [m]
+  (let [r (rand (apply + (vals m)))]
+    (loop [[[k w] & kws] (seq m)
+           sum 0]
+      (if (or (nil? kws) (< r (+ sum w))) k
+          (recur kws (+ sum w))))))
+
+(defmethod choice clojure.lang.IPersistentVector [v]
+  (rand-nth v))
 

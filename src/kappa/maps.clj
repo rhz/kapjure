@@ -118,7 +118,7 @@
            ;;  matchings (map (comp set (partial map first)) cods)]
            (vector
             ;; for the matching map
-            {r {cr matchings}}
+            {r {cr (vec matchings)}}
             ;; for the lift map
             (for [cod cods, [a-id s] cod]
               {a-id {s [{:rule r, :complex cr, :codomain cod}]}}))))

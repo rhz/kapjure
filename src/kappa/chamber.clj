@@ -105,7 +105,7 @@
                               (update-in mm [r c]
                                          (fn [m]
                                            (let [emb (map first cod)]
-                                             (remove (comp #{emb} vals) m)))))
+                                             (vec (remove (comp #{emb} vals) m))))))
                             % r-c-cods))
         ;; for all pairs (b, y) in cod(phi_c) remove <r', c, phi_c> from l(b, y)
         (update-in [:lift-map]
