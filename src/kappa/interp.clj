@@ -9,15 +9,18 @@
   "Group the parsed agents for further processing in a regular way.
   The output is a seq of subexpressions and their factors, i.e., a seq of [factor subexpr]."
   [expr]
-  (loop [[x & xs] expr
-         non-grouped []
-         grouped []]
-    (cond
-      (nil? x) (cons [1 non-grouped] grouped)
-      (number? (first x)) (recur xs non-grouped
-                                 (cons (group-parsed-agents x) grouped)) ; subexpr + factor
-      (coll? (first x)) (recur xs (concat x non-grouped) grouped) ; agent + factor
-      :else (recur xs (cons x non-grouped) grouped)))) ; agent alone
+  (letfn [(step [non-grouped [x & xs]]
+                (cond
+                  (nil? x) (if (empty? non-grouped)
+                             nil
+                             [[1 non-grouped]])
+                  (number? (first x)) (cons x (lazy-seq
+                                                (step non-grouped xs))) ;; subexpr + factor
+                  (coll? (first x)) (lazy-seq
+                                      (step (concat x non-grouped) xs)) ;; agent + factor
+                  :else (lazy-seq
+                          (step (conj non-grouped x) xs))))] ;; agent alone
+    (step [] expr)))
 
 (defn- neighbours
   "Creates a map representing the neighbourhood of each symbol.
@@ -61,11 +64,11 @@
 (defn- interp-subexpr
   "Convert a parsed sub-expression into a seq of refs with the corresponding agents."
   [subexpr]
-  (let [ids (repeatedly (count subexpr) #(misc/counter))
+  (let [ids (repeatedly #(misc/counter))
         ids2agents (zipmap ids subexpr)
         nbs (neighbours ids2agents)]
-    (into {} (map (fn [[id a]] [id (interp-agent a (nbs id))])
-                  ids2agents))))
+    (into {} (map (fn [[id a]]
+                    [id (interp-agent a (nbs id))]) ids2agents))))
 
 (defn interp-expr [expr]
   (let [subexprs (group-parsed-agents expr)]

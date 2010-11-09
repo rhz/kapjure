@@ -61,11 +61,14 @@
   "Returns a seq with the ids of the complexes in expr."
   [expr]
   (if (:complexes (meta expr)) (:complexes (meta expr))
-      (loop [expr expr
-             groups []]
-        (let [remaining (into {} (remove (comp (set (apply concat groups)) key) expr))]
-          (if (empty? remaining) groups
-              (recur (rest remaining) (conj groups (complex remaining (first remaining)))))))))
+      (let [get-complex (partial complex expr)
+            step (fn step [remaining] ;; TODO performance problem here!
+                   (if (empty? remaining)
+                     nil
+                     (let [c (get-complex (first remaining))]
+                       (cons c (lazy-seq
+                                 (step (doall (remove (comp c key) (rest remaining)))))))))]
+        (step expr))))
 
 (defn subexpr
   "Gets the subexpression for the given ids and expression expr."

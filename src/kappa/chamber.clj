@@ -9,9 +9,8 @@
             [clojure.contrib.generic.math-functions :as math]))
 
 ;;; Chambers
-(defrecord Chamber [rules mixture
-                    time event-cnt clash-cnt
-                    volume stochastic-cs activities ;; FIXME activities should be activity-map
+(defrecord Chamber [rules mixture time event-cnt clash-cnt
+                    volume stochastic-cs activities
                     matching-map lift-map ram rim observables])
 
 (defn- update-volume [chamber new-volume]
@@ -102,6 +101,7 @@
         ;; remove phi_c from Phi(r', c)
         (update-in [:matching-map]
                    #(reduce (fn [mm {r :rule, c :complex, cod :codomain}]
+                              ;; TODO performance problem here!
                               (update-in mm [r c]
                                          (fn [m]
                                            (let [emb (map first cod)]
