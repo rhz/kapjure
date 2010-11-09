@@ -8,6 +8,6 @@
                  [clojure-contrib "1.2.0"]
                  ;;[org.clojars.ohpauleez/fnparse "3.0.0alpha4"]
                  [org.clojars.hiredman/fnparse "2.2.4"]]
-  :aot [app]
+  :aot [kappa.isomerization]
   :warn-on-reflection true)
 
