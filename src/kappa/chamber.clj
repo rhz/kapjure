@@ -65,13 +65,16 @@
                                                         (-> r :lhs meta :automorphisms))))
                            % rules)))))
 
-(defn make-chamber [rules mixture volume time observables]
-  (let [[mm lf] (maps/matching-and-lift-map rules mixture)]
-    (-> (Chamber. rules mixture time 0 0 0 [] [] ; kcs and activities are computed later
-                  mm lf (maps/activation-map rules) (maps/inhibition-map rules) observables)
-        (update-volume volume)
-        (update-stochastic-cs)
-        (update-activities))))
+(defn make-chamber
+  ([rules mixture volume observables] (make-chamber rules mixture volume 0 observables))
+  ([rules mixture volume time observables]
+     (let [[mm lf] (maps/matching-and-lift-map rules mixture)]
+       (-> (Chamber. rules mixture time 0 0 0 [] [] ; kcs and activities are computed later
+                     mm lf (maps/activation-map rules) (maps/inhibition-map rules)
+                     (maps/obs-map observables mixture))
+           (update-volume volume)
+           (update-stochastic-cs)
+           (update-activities)))))
 
 (defn- time-advance [activities]
   (/ (math/log (/ 1 (rand)))
@@ -128,22 +131,26 @@
         r (:executed-rule m), lhs (:lhs r), activated-rules (ram r),
         aas (:added-agents m), mss (:modified-sites m),
         all-mas (concat aas (map first mss)), ; all modified agents
-        cm-exprs (map (comp (partial lang/subexpr mixture)
-                            (partial lang/complex mixture))
-                      (for [a-id all-mas] [a-id (mixture a-id)]))
+        cm-exprs (set (map (comp (partial lang/subexpr mixture)
+                                 (partial lang/complex mixture))
+                           (for [a-id all-mas] [a-id (mixture a-id)])))
         ;; for every c in C(r') try to find a unique embedding
         ;; extension phi_c in [c, S'] of the injection c -> {a}
-        cods (remove (comp nil? misc/third)
-                     (for [cm-expr cm-exprs
-                           r activated-rules
-                           cr (lang/get-complexes (:lhs r))
-                           :let [cr-expr (lang/subexpr (:lhs r) cr)]]
-                       [r cr (maps/codomain cr-expr cm-expr)]))
+        aux (remove (comp empty? misc/third)
+                    (for [r activated-rules
+                          cr (lang/get-complexes (:lhs r))
+                          :let [cr-expr (lang/subexpr (:lhs r) cr)]
+                          cm-expr cm-exprs]
+                      [r cr (into {} (map (fn [[[[id1 a1] s1] [[id2 a2] s2]]]
+                                            [[id1 s1] [id2 s2]])
+                                          (maps/codomain cr-expr cm-expr)))]))
+        cods (map (fn [[r cr cr->cm]]
+                    [r cr (vals cr->cm)]) aux)
         new-embeddings (map (fn [[r cr cr->cm]]
-                              [r cr (into {} (map (fn [[[[id1 a1] s1] [[id2 a2] s2]]]
-                                                    [id1 id2]) cr->cm))]) cods)
+                              [r cr (into {} (map (fn [[[id1 s1] [id2 s2]]]
+                                                    [id1 id2]) cr->cm))]) aux)
         cod-mates (for [[r cr cod] cods
-                        [[a-id a] s] (vals cod)]
+                        [a-id s] cod]
                     [a-id s r cr cod])]
     (-> chamber
         ;; for all obtained phi_cs add phi_c to Phi(r', c)
@@ -203,4 +210,13 @@
 
 ;; Existe alguna manera de guardar el historial de cambios de un agente/ref/etc?
 ;; Chamber esta pensado para ser contenido dentro de agentes.
+
+(defn get-obs-counts
+  "Get a map from observables (which are expressions) to the counts they have at
+  each simulation step."
+  [sim]
+  (apply merge-with concat
+         (for [step sim
+               [obs m] (:observables step)]
+           {obs [(count m)]})))
 
