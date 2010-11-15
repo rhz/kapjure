@@ -173,14 +173,21 @@
 
 (defn unbind-agents
   "Returns a function that unbinds agents a1 and a2."
-  [c1 [a1-id a1] s1 c2 [a2-id a2] s2]
-  (fn [chamber matching]
-    (let [ma1 ((matching c1) a1-id), ma2 ((matching c2) a2-id)]
-      (-> chamber
-          (assoc-in [:mixture ma1 :bindings s1] :free)
-          (assoc-in [:mixture ma2 :bindings s2] :free)
-          (vary-meta (fn [m] (update-in m [:modified-sites]
-                                        into [[ma1 s1] [ma2 s2]])))))))
+  ([c1 [a1-id a1] s1 c2 [a2-id a2] s2]
+     (fn [chamber matching]
+       (let [ma1 ((matching c1) a1-id), ma2 ((matching c2) a2-id)]
+         (-> chamber
+             (assoc-in [:mixture ma1 :bindings s1] :free)
+             (assoc-in [:mixture ma2 :bindings s2] :free)
+             (vary-meta (fn [m] (update-in m [:modified-sites]
+                                           into [[ma1 s1] [ma2 s2]])))))))
+  ([c1 [a1-id a1] s1]
+     (fn [chamber matching]
+       (let [ma1 ((matching c1) a1-id)]
+         (-> chamber
+             (assoc-in [:mixture ma1 :bindings s1] :free)
+             (vary-meta (fn [m] (update-in m [:modified-sites]
+                                           into [[ma1 s1]]))))))))
 
 (defn create
   "Returns a function that creates an agent a in chamber's mixture.
@@ -243,15 +250,15 @@
          (apply map vector)
          (map (partial apply concat)))))
 
-(defn get-lhs-oae [id lhs-rhs]
+(defn get-lhs-agent [id lhs-rhs]
   (ffirst (filter (comp #{id} key second) lhs-rhs)))
 
-(defn get-rhs-oae [id lhs-rhs]
+(defn get-rhs-agent [id lhs-rhs]
   (second (first (filter (comp #{id} key first) lhs-rhs))))
 
-(defn get-modified-sites [lhs-rhs]
+(defn get-modified-sites [lhs-rhs lhs]
   (->> (for [agent-pair lhs-rhs]
-         (let [[[lhs-id {lstates :states, lbindings :bindings} :as lhs-oae]
+         (let [[[lhs-id {lstates :states, lbindings :bindings} :as lhs-agent]
                 [rhs-id {rstates :states, rbindings :bindings}]] agent-pair]
            (for [site (set/union (-> lstates keys set)
                                  (-> rstates keys set))]
@@ -259,12 +266,13 @@
                    rs (rstates site), rb (rbindings site)]
                (merge
                 (when-not (or (= ls rs) (nil? rs))
-                  {:modified [[lhs-oae site rs]]})
+                  {:modified [[lhs-agent site rs]]})
                 (when (and (not (number? lb)) (number? rb))
-                  {:bound [[(get-lhs-oae rb lhs-rhs) lhs-oae site]]})
+                  {:bound [[(get-lhs-agent rb lhs-rhs) lhs-agent site]]})
                 (when (and (number? lb) (not (number? rb)))
-                  {:unbound [[(first (filter (comp #{lb} key)
-                                             (map first lhs-rhs))) lhs-oae site]]}))))))
+                  {:unbound [[[lb (lhs lb)] lhs-agent site]]})
+                (when (and (= lb :semi-link) (not= rb :semi-link))
+                  {:unbound [[nil lhs-agent site]]}))))))
        (apply concat)
        (apply merge-with concat)))
 
@@ -279,8 +287,14 @@
                                                                                  #(take 2 %)))
                                                                 first misc/third)]]
                                               #{[a1 s1] [a2 s2]}))]
+                    ;; sets doesn't preserve order, so these [a1 s1] and [a2 s2] are not
+                    ;; the same as above
                     (let [[a1 s1] (first site-pair), [a2 s2] (second site-pair)]
-                      (f (complex lhs a1) a1 s1 (complex lhs a2) a2 s2))))]
+                      (cond
+                        ;; TODO can this happen for bind-agents?
+                        (some nil? [a2 s2]) (f (complex lhs a1) a1 s1)
+                        (some nil? [a1 s1]) (f (complex lhs a2) a2 s2)
+                        :else (f (complex lhs a1) a1 s1 (complex lhs a2) a2 s2)))))]
   (defn- get-bind-agents-fns [{bss :bound} lhs]
     (common-fn bss lhs bind-agents))
   (defn- get-unbind-agents-fns [{uss :unbound} lhs]
@@ -288,7 +302,7 @@
 
 (defn elementary-actions [lhs rhs]
   (let [[lhs-rhs created-agents removed-agents] (pair-exprs lhs rhs)
-        modified-sites (get-modified-sites lhs-rhs)
+        modified-sites (get-modified-sites lhs-rhs lhs)
 
         [modify-state-fns bind-agents-fns unbind-agents-fns]
         ((juxt get-modify-state-fns get-bind-agents-fns get-unbind-agents-fns) modified-sites lhs)
@@ -296,13 +310,14 @@
         ;; get every modified site
         {:keys [bound unbound modified]} modified-sites
         
-        [[bss-lhs bss-rhs] [uss-lhs uss-rhs]]
-        (map #(for [[a2 a1 s1] %] [a1 s1]) [bound unbound])
+        [bss-lhs uss-lhs] (map #(for [[a2 a1 s1] %] [a1 s1]) [bound unbound])
+        [bss-rhs uss-rhs] (map #(for [[[a1-id a1] s1] %]
+                                  [(get-rhs-agent a1-id lhs-rhs) s1])
+                               [bss-lhs uss-lhs])
         
         mss (apply concat
-                   (for [[lhs-agent site _] modified]
-                     ;; get every modified site! in lhs and rhs!
-                     [[lhs-agent site] [(get-rhs-oae (key lhs-agent) lhs-rhs) site]]))
+                   (for [[lhs-agent site _] modified] ; get every modified site! in lhs and rhs!
+                     [[lhs-agent site] [(get-rhs-agent (key lhs-agent) lhs-rhs) site]]))
 
         [css rss] (map #(for [[id {states :states} :as oae] %, site (keys states)]
                           [oae site])
