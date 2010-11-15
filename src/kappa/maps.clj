@@ -8,7 +8,9 @@
 
 ;;; Activation and Inhibition map
 
-(defn- mix [a1 a2 e1-e2]
+(defn- mix
+  "Tries to mix a1 with a2 in one single agent. If it couldn't returns nil."
+  [a1 a2 e1-e2]
   (c/handler-case :type
     (let [{name :name, a1states :states, a1bindings :bindings} a1
           {a2states :states, a2bindings :bindings} a2
@@ -28,12 +30,14 @@
                                   (and (= b1 :semi-link) (number? b2)) [site b2]
                                   (and (= b2 :semi-link) (number? b1)) [site b1]
                                   (and (number? b1) (number? b2)
-                                       (= (key (lang/get-lhs-oae b2 e1-e2)) b1)) [site b1]
+                                       (= (key (lang/get-lhs-agent b2 e1-e2)) b1)) [site b1]
                                   :else (c/raise :type :unmixable-agents)))))]
       (lang/make-agent name states bindings))
     (handle :unmixable-agents nil)))
 
-(defn- create-mixed-expr [e1 e2]
+(defn- create-mixed-expr
+  "Returns the smallest expression mixing e1 and e2."
+  [e1 e2]
   (let [[e1-e2 & left] (lang/pair-exprs e1 e2)]
     (loop [agent-pairs e1-e2,
            ids-map (zipmap (apply concat (map keys left)) (repeatedly #(misc/counter))),
@@ -70,7 +74,9 @@
                                          (lang/subexpr e (vector (matched-complex pa-id))))]
                {[p-oae pa-site] [e-oae pa-site]})))))
 
-(defn activates? [r1 r2]
+(defn activates?
+  "Tells whether r1 activates r2."
+  [r1 r2]
   (let [rhs1 (:rhs r1), lhs2 (:lhs r2),
         mss (-> r1 :action meta :modified-sites),
         S (create-mixed-expr rhs1 lhs2),
@@ -80,12 +86,16 @@
                    pa-site))]
     (some dom mss)))
 
-(defn activation-map [rules]
+(defn activation-map
+  "Returns a map from each rule r in rules to the rules r activates."
+  [rules]
   (apply merge
          (for [r1 rules]
            {r1 (filter (partial activates? r1) rules)})))
 
-(defn inhibits? [r1 r2]
+(defn inhibits?
+  "Tells whether r1 inhibits r2."
+  [r1 r2]
   (if (identical? r1 r2)
     false
     (let [lhs1 (:lhs r1), lhs2 (:lhs r2),
@@ -97,7 +107,9 @@
                      pa-site))]
       (some dom mss))))
 
-(defn inhibition-map [rules]
+(defn inhibition-map
+  "Returns a map from each rule r in rules to the rules r inhibits."
+  [rules]
   (apply merge
          (for [r1 rules]
            {r1 (filter (partial inhibits? r1) rules)})))
@@ -105,7 +117,9 @@
 
 ;;; Matching map and Lift map
 
-(defn matching-and-lift-map [rule-set mixture]
+(defn matching-and-lift-map
+  ""
+  [rule-set mixture]
   (->> (for [r rule-set, cr (lang/get-complexes (:lhs r))] ; for each pair [r, cr]
          ;; cr and cm are seqs of ids... matchings is a seq of sets of ids
          (let [cr-expr (lang/subexpr (:lhs r) cr)
@@ -136,4 +150,12 @@
                     second)))))
 
 ;;; TODO Observables map: like the matching map
+(defn obs-map
+  "Returns a map from observables (which are expressions) to the complexes they
+  match to into the mixture.
+  Note: not implemented yet."
+  [observables mixture]
+  (into {} (for [obs observables]
+             [obs (filter (comp (partial lang/match obs) (partial lang/subexpr mixture))
+                          (lang/get-complexes mixture))])))
 
