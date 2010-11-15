@@ -1,4 +1,4 @@
-(ns ^{:doc ""
+(ns ^{:doc "Useful functions that doesn't fit elsewhere."
       :author "Ricardo Honorato-Zimmer"}
   kappa.misc)
 
@@ -13,9 +13,7 @@
                #(swap! cnt inc)))
 
 (defn factorial [n]
-  (loop [n n, acc 1]
-    (if (= n 1) acc
-        (recur (dec n) (* acc n)))))
+  (apply * (take (dec n) (iterate inc 2))))
 
 (defn pre-traverse
   "Traverses a graph depth-first preorder from start, neighbors being a
