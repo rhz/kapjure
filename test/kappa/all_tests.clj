@@ -11,6 +11,8 @@
             [clojure.contrib.generic.math-functions :as math]
             :reload))
 
+;;;; WARNING: the five FAIL message this file gives are due to a problem in the parser
+;;;;          that I'll solve as soon as possible.
 
 ;;;; language.clj
 ;;; Tests for match :agent
@@ -175,4 +177,19 @@
       (is (= (count (filter (fn [[_ {name :name}]] (= name "a"))
                             (:mixture (last sim))))
              900)))))
+
+
+;; Tutorial
+(interp/def-rules
+  [r1 r1-op] "E(x), S(x) <-> E(x!1), S(x!1) @ 1"
+  r2 "E(x!1), S(x!1) -> E(x), P(x) @ 0.1")
+
+(interp/def-exprs
+  e1 "E(x), E(x), S(x), S(x), S(x), S(x)"
+  e2 "E(x), E(x!1), S(x!1), S(x), S(x), S(x)"
+  obs1 "P(x)", obs2 "S(x)")
+
+(let [initial-chamber (chamber/make-chamber [r1 r1-op r2] e1 1 [obs1 obs2])
+      simulation (take 10 (iterate chamber/gen-event initial-chamber))]
+  (:mixture (last simulation)))
 
