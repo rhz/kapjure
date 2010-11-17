@@ -20,7 +20,7 @@
 
 (defn- determ2stoch [volume rule]
   (let [n-avogadro 6.022e23
-        num-complexes (count (:lhs rule)) ; num-complexes = reaction's order
+        num-complexes (-> rule :lhs lang/get-complexes count) ;; reaction's order
         rate (:rate rule)
         aut (-> rule :lhs meta :automorphisms)]
     (cond
