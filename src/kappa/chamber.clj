@@ -11,7 +11,7 @@
 ;;; Chambers
 (defrecord Chamber [rules mixture time event-cnt clash-cnt
                     volume stochastic-cs activities
-                    matching-map lift-map ram rim observables])
+                    matching-map lift-map ram rim obs-exprs obs-rules])
 
 (defn- update-volume [chamber new-volume]
   (-> chamber
@@ -66,12 +66,15 @@
                            % rules)))))
 
 (defn make-chamber
-  ([rules mixture volume observables] (make-chamber rules mixture volume 0 observables))
-  ([rules mixture volume time observables]
+  ([rules mixture volume obs-exprs]
+     (make-chamber rules mixture volume 0 obs-exprs []))
+  ([rules mixture volume obs-exprs obs-rules]
+     (make-chamber rules mixture volume 0 obs-exprs obs-rules))
+  ([rules mixture volume time obs-exprs obs-rules]
      (let [[mm lf] (maps/matching-and-lift-map rules mixture)]
        (-> (Chamber. rules mixture time 0 0 0 [] [] ; kcs and activities are computed later
-                     mm lf (maps/activation-map rules) (maps/inhibition-map rules)
-                     (maps/obs-map observables mixture))
+                     mm lf (maps/activation-map rules) (maps/inhibition-map rules) ; maps
+                     (maps/obs-map obs-exprs mixture) obs-rules) ; observables
            (update-volume volume)
            (update-stochastic-cs)
            (update-activities)))))
@@ -217,6 +220,6 @@
   [sim]
   (apply merge-with concat
          (for [step sim
-               [obs m] (:observables step)]
+               [obs m] (:obs-exprs step)]
            {obs [(count m)]})))
 
