@@ -195,14 +195,14 @@
     "bidirectional arrow" "<->" ::bidirectional-rule))
 
 (h/defrule- <rule>
-  ;; FIXME rate and name should be able to recognize a second number/string
-  ;;       for the reverse reaction
   (h/for [name (h/opt (h/circumfix (h/lit \') <alphanumeric-string> (h/lit \'))),
           lhs <expr>, arrow (circumfix-ws <arrow>), rhs <expr>,
-          rate (h/prefix (circumfix-ws (h/lit \@)) <number>)]
+          rate (h/prefix (circumfix-ws (h/lit \@)) <number>),
+          second-rate (h/opt (h/prefix (circumfix-ws (h/lit \,)) <number>))]
     (if (= arrow ::unidirectional-rule)
       [(lang/make-rule name lhs rhs rate)]
-      [(lang/make-rule name lhs rhs rate) (lang/make-rule name rhs lhs rate)])))
+      [(lang/make-rule name lhs rhs rate)
+       (lang/make-rule (str name "-op") rhs lhs second-rate)])))
 
 ;;; System
 (h/defrule- <init-line>
