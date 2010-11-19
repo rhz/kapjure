@@ -57,27 +57,31 @@
   [expr initial-oae]
   (set (map first (misc/pre-traverse (partial get-neighbours expr) initial-oae))))
 
+(defn compute-complexes [expr]
+  (let [get-complex (partial complex expr)
+        step (fn step [remaining]
+               (if (empty? remaining)
+                 nil
+                 (let [c (get-complex (first remaining))]
+                   (cons c (lazy-seq
+                             (step (doall (remove (comp c key) (rest remaining)))))))))]
+    (step expr)))
+
+(defn with-complexes [expr]
+  (vary-meta expr merge {:complexes (compute-complexes expr)}))
+
+;; TODO candidate for removal
 (defn get-complexes
   "Returns a seq with the ids of the complexes in expr."
   [expr]
-  (if (:complexes (meta expr)) (:complexes (meta expr))
-      (let [get-complex (partial complex expr)
-            step (fn step [remaining] ;; TODO performance problem here!
-                   (if (empty? remaining)
-                     nil
-                     (let [c (get-complex (first remaining))]
-                       (cons c (lazy-seq
-                                 (step (doall (remove (comp c key) (rest remaining)))))))))]
-        (step expr))))
+  (if (:complexes (meta expr))
+    (:complexes (meta expr))
+    (with-complexes expr)))
 
 (defn subexpr
   "Gets the subexpression for the given ids and expression expr."
   [expr ids]
   (zipmap ids (map expr ids)))
-
-;; probably only patterns need to know the set of all complexes
-(defn make-pattern [expr]
-  (vary-meta expr assoc :complexes (get-complexes expr)))
 
 (defn expression?
   "Check if obj is a Kappa expression."
@@ -339,12 +343,14 @@
 (defn count-automorphisms [expr]
   (misc/factorial 
    (reduce + 1
-           (for [[c1 c2] (comb/combinations (map (partial subexpr expr) (get-complexes expr)) 2)]
+           (for [[c1 c2] (comb/combinations (map (partial subexpr expr)
+                                                 (-> expr meta :complexes)) 2)]
              (if (match c1 c2) 1 0)))))
 
 (defn make-rule [name lhs rhs rate]
-  (Rule. name (make-pattern (with-meta lhs {:automorphisms (count-automorphisms lhs)}))
-         (make-pattern rhs) rate (action lhs rhs)))
+  (Rule. name (vary-meta lhs merge
+                {:automorphisms (count-automorphisms lhs)})
+         rhs rate (action lhs rhs)))
 
 (defn rule?
   "Check if obj is a Kappa rule."

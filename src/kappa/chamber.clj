@@ -20,7 +20,7 @@
 
 (defn- determ2stoch [volume rule]
   (let [n-avogadro 6.022e23
-        num-complexes (-> rule :lhs lang/get-complexes count) ;; reaction's order
+        num-complexes (-> rule :lhs meta :complexes count) ;; reaction's order
         rate (:rate rule)
         aut (-> rule :lhs meta :automorphisms)]
     (cond
@@ -134,15 +134,17 @@
         r (:executed-rule m), lhs (:lhs r), activated-rules (ram r),
         aas (:added-agents m), mss (:modified-sites m),
         all-mas (concat aas (map first mss)), ; all modified agents
-        cm-exprs (set (map (comp (partial lang/subexpr mixture)
-                                 (partial lang/complex mixture))
-                           (for [a-id all-mas] [a-id (mixture a-id)])))
+        cm-exprs (set (for [a-id all-mas
+                            :let [cm (lang/complex mixture [a-id (mixture a-id)])]]
+                        (with-meta (lang/subexpr mixture cm)
+                          {:complexes [cm]})))
         ;; for every c in C(r') try to find a unique embedding
         ;; extension phi_c in [c, S'] of the injection c -> {a}
         aux (remove (comp empty? misc/third)
                     (for [r activated-rules
-                          cr (lang/get-complexes (:lhs r))
-                          :let [cr-expr (lang/subexpr (:lhs r) cr)]
+                          cr (-> r :lhs meta :complexes)
+                          :let [cr-expr (with-meta (lang/subexpr (:lhs r) cr)
+                                          {:complexes [cr]})]
                           cm-expr cm-exprs]
                       [r cr (into {} (map (fn [[[[id1 a1] s1] [[id2 a2] s2]]]
                                             [[id1 s1] [id2 s2]])

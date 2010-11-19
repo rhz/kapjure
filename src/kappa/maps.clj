@@ -65,8 +65,8 @@
   "Returns a map from pairs [oae, site] in p to pairs [oae, site] in e that matches."
   [p e]
   (apply merge
-         (let [e-complexes (map (partial lang/subexpr e) (lang/get-complexes e))]
-           (for [p-complex (map (partial lang/subexpr p) (lang/get-complexes p)),
+         (let [e-complexes (map (partial lang/subexpr e) (-> e meta :complexes))]
+           (for [p-complex (map (partial lang/subexpr p) (-> p meta :complexes)),
                  matched-complex (keep (partial lang/match p-complex) e-complexes),
                  [pa-id pa :as p-oae] p-complex,
                  pa-site (-> pa :states keys)]
@@ -79,7 +79,7 @@
   [r1 r2]
   (let [rhs1 (:rhs r1), lhs2 (:lhs r2),
         mss (-> r1 :action meta :modified-sites),
-        S (create-mixed-expr rhs1 lhs2),
+        S (lang/with-complexes (create-mixed-expr rhs1 lhs2)),
         [rhs1->S lhs2->S] (map codomain [rhs1 lhs2] (repeat S)),
         cod (apply set/intersection (map (comp set vals) [rhs1->S lhs2->S])),
         dom (set (for [[pa-site ea-site] rhs1->S :when (cod ea-site)]
@@ -100,7 +100,7 @@
     false
     (let [lhs1 (:lhs r1), lhs2 (:lhs r2),
           mss (-> r1 :action meta :modified-sites),
-          S (create-mixed-expr lhs1 lhs2),
+          S (lang/with-complexes (create-mixed-expr lhs1 lhs2)),
           [lhs1->S lhs2->S] (map codomain [lhs1 lhs2] (repeat S)),
           cod (apply set/intersection (map (comp set vals) [lhs1->S lhs2->S])),
           dom (set (for [[pa-site ea-site] lhs1->S :when (cod ea-site)]
@@ -118,13 +118,17 @@
 ;;; Matching map and Lift map
 
 (defn matching-and-lift-map
-  ""
+  "Compute the matching map and lift map. For reference, see
+  'Scalable Simulation of Cellular Signaling Networks', V. Danos, J. Feret,
+  W. Fontana, and J. Krivine, 2007."
   [rule-set mixture]
-  (->> (for [r rule-set, cr (lang/get-complexes (:lhs r))] ; for each pair [r, cr]
+  (->> (for [r rule-set, cr (-> r :lhs meta :complexes)] ; for each pair [r, cr]
          ;; cr and cm are seqs of ids... matchings is a seq of sets of ids
-         (let [cr-expr (lang/subexpr (:lhs r) cr)
-               aux (keep (fn [cm] (codomain cr-expr (lang/subexpr mixture cm)))
-                         (lang/get-complexes mixture))
+         (let [cr-expr (with-meta (lang/subexpr (:lhs r) cr)
+                         {:complexes [cr]})
+               aux (keep (fn [cm] (codomain cr-expr (with-meta (lang/subexpr mixture cm)
+                                                      {:complexes [cm]})))
+                         (-> mixture meta :complexes))
                cods (map (comp (partial map (fn [[[id a] s]] [id s])) vals) aux)
                matchings (map (fn [cr->cm]
                                 (into {} (map (fn [[[[id1 a1] s1] [[id2 a2] s2]]]
@@ -157,5 +161,5 @@
   [observables mixture]
   (into {} (for [obs observables]
              [obs (filter (comp (partial lang/match obs) (partial lang/subexpr mixture))
-                          (lang/get-complexes mixture))])))
+                          (-> mixture meta :complexes))])))
 
