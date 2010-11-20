@@ -16,7 +16,7 @@
 (defn- update-volume [chamber new-volume]
   (-> chamber
       (assoc :volume new-volume)
-      (vary-meta assoc-in [:volume-changed?] true)))
+      (vary-meta assoc :volume-changed? true)))
 
 (defn- determ2stoch [volume rule]
   (let [n-avogadro 6.022e23
@@ -32,14 +32,14 @@
 (defn- update-stochastic-cs [chamber]
   (if (:volume-changed? (meta chamber))
     (-> chamber
-        (vary-meta assoc-in [:volume-changed?] false)
+        (vary-meta assoc :volume-changed? false)
         (assoc :stochastic-cs (zipmap (:rules chamber)
-                                       (map (partial determ2stoch (:volume chamber))
-                                            (:rules chamber))))
-        (vary-meta assoc-in [:kcs-changed?] true))
+                                      (map (partial determ2stoch (:volume chamber))
+                                           (:rules chamber))))
+        (vary-meta assoc :kcs-changed? true))
     chamber))
 
-(defn- activity [ms k aut] ; matchings and stochastic kinetic constants
+(defn- activity [ms k aut] ; matchings (ms) and stochastic kinetic constant (k)
   (/ (apply * k (map (comp count val) ms)) aut))
 
 (defn- update-activities
@@ -50,19 +50,19 @@
                kcs (:stochastic-cs chamber)
                rules (:rules chamber)]
            (-> chamber
-               (vary-meta assoc-in [:kcs-changed?] false)
-               (assoc :activities (into {} (map (fn [r]
-                                                  [r (activity (mm r) (kcs r)
-                                                               (-> r :lhs meta :automorphisms))])
-                                                rules)))))
+               (vary-meta assoc :kcs-changed? false)
+               (assoc :activities
+                 (into {} (map (fn [r]
+                                 [r (activity (mm r) (kcs r) (-> r :lhs meta :automorphisms))])
+                               rules)))))
          chamber)))
   ([chamber rules]
      (let [mm (:matching-map chamber)
            cs (:stochastic-cs chamber)]
        (update-in chamber [:activities]
                   #(reduce (fn [am r]
-                             (assoc-in am [r] (activity (mm r) (cs r)
-                                                        (-> r :lhs meta :automorphisms))))
+                             (assoc am r (activity (mm r) (cs r)
+                                                   (-> r :lhs meta :automorphisms))))
                            % rules)))))
 
 (defn make-chamber
@@ -86,36 +86,39 @@
 (defn- select-rule [activities]
   (misc/choice activities))
 
-(defn select-matching [matchings]
-  (apply merge (for [[c m] matchings]
-                 {c (misc/choice m)})))
+(defn select-matching-per-complex [mm]
+  (apply merge (for [[c m] mm]
+                 {c (rand-nth (seq m))})))
 
 (defn- clash? [m]
-  (let [agent-ids (for [[c matchings] m, [lhs-agent mixture-agent] matchings] mixture-agent)]
+  (let [agent-ids (for [[c matchings] m
+                        [lhs-agent mixture-agent] matchings]
+                    mixture-agent)]
     (not (every? #(= (val %) 1) (frequencies agent-ids)))))
 
 (defn- negative-update [chamber]
-  (let [lift-map (:lift-map chamber), m (meta chamber),
-        ras (:removed-agents m), mss (:modified-sites m),
+  (let [lift-map (:lift-map chamber)
+        m (meta chamber)
+        ras (:removed-agents m)
+        mss (:modified-sites m)
         r-c-cods (apply concat (concat
-                                (for [[ma ms] mss] ((lift-map ma) ms))
-                                (for [ra ras] (apply concat (vals (lift-map ra)))))),
-        cod-mates (for [{r :rule, c :complex, cod :codomain} r-c-cods,
+                                (for [[ma ms] mss]
+                                  ((lift-map ma) ms))
+                                (for [ra ras]
+                                  (apply concat (vals (lift-map ra))))))
+        cod-mates (for [{r :rule, c :complex, cod :codomain} r-c-cods
                         [a-id s] cod]
                     [a-id s r c cod])]
     (-> chamber
         ;; remove phi_c from Phi(r', c)
         (update-in [:matching-map]
-                   #(reduce (fn [mm {r :rule, c :complex, cod :codomain}]
-                              ;; TODO performance problem here!
-                              (update-in mm [r c]
-                                         (fn [m]
-                                           (let [emb (map first cod)]
-                                             (vec (remove (comp #{emb} vals) m))))))
+                   #(reduce (fn remove-phi [mm {r :rule, c :complex, cod :codomain}]
+                              (let [matching (zipmap c (map first cod))]
+                                (update-in mm [r c] disj matching)))
                             % r-c-cods))
         ;; for all pairs (b, y) in cod(phi_c) remove <r', c, phi_c> from l(b, y)
         (update-in [:lift-map]
-                   #(reduce (fn [lm [a-id s r c cod]]
+                   #(reduce (fn lm-update [lm [a-id s r c cod]]
                               (update-in lm [a-id s]
                                          (fn [lm-vals]
                                            (remove #{{:rule r, :complex c, :codomain cod}}
@@ -123,51 +126,56 @@
                             % cod-mates))
         ;; set l(a, x) = empty set
         (update-in [:lift-map]
-                   #(reduce (fn [lm [a x]]
+                   #(reduce (fn remove-ax-from-lm [lm [a x]]
                               (update-in lm [a] dissoc x))
                             % mss))
         (update-in [:lift-map]
                    #(reduce (fn [lm a] (dissoc lm a)) % ras)))))
 
 (defn- positive-update [chamber]
-  (let [ram (:ram chamber), m (meta chamber), mixture (:mixture chamber),
-        r (:executed-rule m), lhs (:lhs r), activated-rules (ram r),
-        aas (:added-agents m), mss (:modified-sites m),
-        all-mas (concat aas (map first mss)), ; all modified agents
-        cm-exprs (set (for [a-id all-mas
+  (let [ram (:ram chamber)
+        mixture (:mixture chamber)
+        m (meta chamber)
+        activated-rules ((:ram chamber) (:executed-rule m))
+        aas (:added-agents m)
+        mss (:modified-sites m)
+        mas (concat aas (map first mss))
+        cm-exprs (set (for [a-id mas
                             :let [cm (lang/complex mixture [a-id (mixture a-id)])]]
                         (with-meta (lang/subexpr mixture cm)
                           {:complexes [cm]})))
         ;; for every c in C(r') try to find a unique embedding
         ;; extension phi_c in [c, S'] of the injection c -> {a}
-        aux (remove (comp empty? misc/third)
-                    (for [r activated-rules
-                          cr (-> r :lhs meta :complexes)
-                          :let [cr-expr (with-meta (lang/subexpr (:lhs r) cr)
-                                          {:complexes [cr]})]
-                          cm-expr cm-exprs]
-                      [r cr (into {} (map (fn [[[[id1 a1] s1] [[id2 a2] s2]]]
-                                            [[id1 s1] [id2 s2]])
-                                          (maps/codomain cr-expr cm-expr)))]))
+        embs (remove (comp empty? misc/third)
+                     (for [r activated-rules
+                           cr (-> r :lhs meta :complexes)
+                           :let [cr-expr (with-meta (lang/subexpr (:lhs r) cr)
+                                           {:complexes [cr]})]
+                           cm-expr cm-exprs]
+                       [r cr (into {} (map (fn [[[[id1 a1] s1] [[id2 a2] s2]]]
+                                             [[id1 s1] [id2 s2]])
+                                           (maps/codomain cr-expr cm-expr)))]))
         cods (map (fn [[r cr cr->cm]]
-                    [r cr (vals cr->cm)]) aux)
-        new-embeddings (map (fn [[r cr cr->cm]]
-                              [r cr (into {} (map (fn [[[id1 s1] [id2 s2]]]
-                                                    [id1 id2]) cr->cm))]) aux)
+                    [r cr (vals cr->cm)]) embs)
+        emb-agent-ids (map (fn [[r cr cr->cm]]
+                             [r cr (into {} (map (fn [[[id1 s1] [id2 s2]]]
+                                                   [id1 id2]) cr->cm))]) embs)
         cod-mates (for [[r cr cod] cods
                         [a-id s] cod]
                     [a-id s r cr cod])]
     (-> chamber
         ;; for all obtained phi_cs add phi_c to Phi(r', c)
         (update-in [:matching-map]
-                   #(reduce (fn [mm [r c emb]]
+                   #(reduce (fn update-mm [mm [r c emb]]
                               (update-in mm [r c] conj emb))
-                            % new-embeddings))
+                            % emb-agent-ids))
         ;; and add <r', c, phi_c> to l(b, y) for all pairs (b, y) in cod(phi_c)
         (update-in [:lift-map]
-                   #(reduce (fn [lm [a s r c cod]]
+                   #(reduce (fn update-lm [lm [a s r c cod]]
                               (update-in lm [a s] conj {:rule r, :complex c, :codomain cod}))
                             % cod-mates)))))
+
+(def *max-clashes* 8)
 
 (defn gen-event
   "Generates a new event from chamber. You can additionally provide any
@@ -175,22 +183,26 @@
   new chamber. These callback functions are called at the end of the iteration and
   can update chamber's properties (e.g. volume) or communicate with the organizer."
   [chamber & callbacks]
+  (when (or (> (:clash-cnt chamber) *max-clashes*)
+            (every? zero? (vals (:activities chamber))))
+    (throw (Exception. "Deadlock found!")))
   (let [r (select-rule (:activities chamber))
-        m (select-matching ((:matching-map chamber) r))
+        m (select-matching-per-complex ((:matching-map chamber) r))
         dt (time-advance (:activities chamber))]
     (if (clash? m)
       (-> chamber
           (update-in [:clash-cnt] inc) ; increment clash-cnt
           (update-in [:time] + dt)) ; and time
-      (let [action (:action r)]
-        (-> chamber
-            ;; meta cleanup first... so after the event the user can review the meta info
-            (vary-meta merge {:added-agents [], :removed-agents [], :modified-sites []})
-            (vary-meta merge {:executed-rule r})
-            (action m) negative-update positive-update
-            (update-in [:time] + dt)
-            (update-activities (concat ((:ram chamber) r) ((:rim chamber) r) [r]))
-            ((apply comp identity callbacks)))))))
+      (-> chamber
+          ;; meta cleanup first... so after the event the user can review the meta info
+          (vary-meta merge {:added-agents [], :removed-agents [], :modified-sites []})
+          (vary-meta merge {:executed-rule r})
+          ((:action r) m) negative-update positive-update
+          (assoc :clash-cnt 0)
+          (update-in [:time] + dt)
+          (update-activities (concat ((:ram chamber) r)
+                                     ((:rim chamber) r) [r]))
+          ((apply comp identity callbacks))))))
 
 ;; Tengo que encontrar una manera de guardar los cambios que realiza action
 ;; sobre la solucion, para asi despues poder pasarselo a negative-update,
@@ -216,7 +228,7 @@
 ;; Existe alguna manera de guardar el historial de cambios de un agente/ref/etc?
 ;; Chamber esta pensado para ser contenido dentro de agentes.
 
-(defn get-obs-counts
+(defn get-obs-expr-counts
   "Get a map from observables (which are expressions) to the counts they have at
   each simulation step."
   [sim]

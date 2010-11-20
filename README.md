@@ -90,7 +90,7 @@ If you want to get a map for their counts, just call `get-obs-counts`:
 
     (let [initial-chamber (k/make-chamber [r1 r1-op r2] e1 1 [obs1 obs2])
           simulation (take 10 (iterate k/gen-event initial-chamber))]
-      (get-obs-count simulation))
+      (k/get-obs-expr-counts simulation))
 
 This could be easily put in a graph using <a href="http://incanter.org/">Incanter</a>.
 (a function that does this for you is planned also).

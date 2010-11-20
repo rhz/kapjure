@@ -113,7 +113,6 @@
        ;; binding values of each site mentioned in p is equal or less specific than those in a
        (let [p-bindings (into {} (remove #(= (val %) :unspecified) (:bindings p)))]
          (every? #(case (p-bindings %)
-                    :unspecified true
                     :free (= ((:bindings a) %) :free)
                     (not (= ((:bindings a) %) :free)))
                  (keys p-bindings)))))
@@ -127,29 +126,32 @@
     (loop [left match-comb]
       (if (empty? left)
         nil
-        (let [match-dict (zipmap (vals p) (vals (first left)))]
+        (let [pa->ea (zipmap (vals p) (vals (first left)))
+              pa-id->ea-id (zipmap (keys p) (keys (first left)))]
           ;; the neighbours of each agent in the pattern must match
           ;; the neighbours of each agent in the expression
-          (or (if (and (= (count match-dict) n)
-                       (every? (fn [[pa a]] ; iterates over every matching pa => a
-                                 (every? true? ; iterates over every binding of pa
-                                         (map (fn [[site binding]]
-                                                (case binding
-                                                  :unspecified true
-                                                  :semi-link (not (= ((:bindings a) site) :free))
-                                                  :free (= ((:bindings a) site) :free)
-                                                  ;; FIXME this can be optimized using ids
-                                                  (= (e ((:bindings a) site))
-                                                     (match-dict (p binding)))))
-                                              (:bindings pa))))
-                               match-dict))
-                (zipmap (keys p) (keys (first left))))
-              (recur (rest left))))))))
+          (if (and (= (count pa->ea) n)
+                   (every? (fn [[pa ea]] ; iterates over every matching pa => ea
+                             (every? true? ; iterates over every binding of pa
+                                     (map (fn [[site binding]]
+                                            (case binding
+                                              :unspecified true
+                                              :semi-link (not (= ((:bindings ea) site) :free))
+                                              :free (= ((:bindings ea) site) :free)
+                                              (= ((:bindings ea) site)
+                                                 (pa-id->ea-id binding))))
+                                          (:bindings pa))))
+                           pa->ea))
+            pa-id->ea-id
+            (recur (rest left))))))))
 
 
 ;;; Rules
 (defrecord Rule [name lhs rhs rate action])
 ;; rate is the deterministic kinetic constant
+
+(defmethod print-method Rule [r w]
+  (.write w (str \' (:lhs r) " -> " (:rhs r) " @ " (:rate r) \')))
 
 (defn modify-state
   "Returns a function that modifies the state of site s in agent

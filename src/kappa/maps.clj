@@ -62,28 +62,44 @@
                      (into result [new-oae1 new-oae2])))))))))
 
 (defn codomain
-  "Returns a map from pairs [oae, site] in p to pairs [oae, site] in e that matches."
+  "Returns a map from pairs [oae, site] in p to pairs [oae, site] in e that matches.
+  This function requires that the given expressions has accurate information about
+  their complexes in the metadata."
   [p e]
-  (apply merge
+  (apply merge ;; don't replace this by into {}! remember that it returns a lot of empty maps
          (let [e-complexes (map (partial lang/subexpr e) (-> e meta :complexes))]
-           (for [p-complex (map (partial lang/subexpr p) (-> p meta :complexes)),
-                 matched-complex (keep (partial lang/match p-complex) e-complexes),
-                 [pa-id pa :as p-oae] p-complex,
-                 pa-site (-> pa :states keys)]
-             (let [[ea-id ea :as e-oae] (first
-                                         (lang/subexpr e (vector (matched-complex pa-id))))]
-               {[p-oae pa-site] [e-oae pa-site]})))))
+           (for [p-complex (map (partial lang/subexpr p) (-> p meta :complexes))
+                 
+                 matched-complex (keep (partial lang/match p-complex) e-complexes)
+                 
+                 ;; for each site in each agent of p-complex
+                 [pa-id pa :as p-oae] p-complex, pa-site (-> pa :states keys)
+                 
+                 :let [ea-id (matched-complex pa-id),  e-oae [ea-id (e ea-id)]]]
+             {[p-oae pa-site] [e-oae pa-site]}))))
 
 (defn activates?
   "Tells whether r1 activates r2."
   [r1 r2]
   (let [rhs1 (:rhs r1), lhs2 (:lhs r2),
         mss (-> r1 :action meta :modified-sites),
+        
+        ;; compute a minimal mixed expression between rhs1 and lhs2
         S (lang/with-complexes (create-mixed-expr rhs1 lhs2)),
+        
+        ;; compute the codomains of rhs1 and lhs2 in S
         [rhs1->S lhs2->S] (map codomain [rhs1 lhs2] (repeat S)),
+        
+        ;; compute the intersection between the sites in the codomains of rhs1 and lhs2 in S
         cod (apply set/intersection (map (comp set vals) [rhs1->S lhs2->S])),
-        dom (set (for [[pa-site ea-site] rhs1->S :when (cod ea-site)]
+        
+        ;; get back the sites corresponding to that intersection in rhs1
+        dom (set (for [[pa-site ea-site] rhs1->S
+                       :when (cod ea-site)]
                    pa-site))]
+    
+    ;; if at least one of the sites in the intersection is a site modified by r1
+    ;; then r2 is activated by r1
     (some dom mss)))
 
 (defn activation-map
@@ -98,12 +114,14 @@
   [r1 r2]
   (if (identical? r1 r2)
     false
+    ;; see activates? for a detailed description of these steps
     (let [lhs1 (:lhs r1), lhs2 (:lhs r2),
           mss (-> r1 :action meta :modified-sites),
           S (lang/with-complexes (create-mixed-expr lhs1 lhs2)),
           [lhs1->S lhs2->S] (map codomain [lhs1 lhs2] (repeat S)),
           cod (apply set/intersection (map (comp set vals) [lhs1->S lhs2->S])),
-          dom (set (for [[pa-site ea-site] lhs1->S :when (cod ea-site)]
+          dom (set (for [[pa-site ea-site] lhs1->S
+                         :when (cod ea-site)]
                      pa-site))]
       (some dom mss))))
 
@@ -136,7 +154,7 @@
            ;;  matchings (map (comp set (partial map first)) cods)]
            (vector
             ;; for the matching map
-            {r {cr (vec matchings)}}
+            {r {cr (set matchings)}}
             ;; for the lift map
             (for [cod cods, [a-id s] cod]
               {a-id {s [{:rule r, :complex cr, :codomain cod}]}}))))
