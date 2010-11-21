@@ -151,7 +151,7 @@
 ;; rate is the deterministic kinetic constant
 
 (defmethod print-method Rule [r w]
-  (.write w (str \' (:lhs r) " -> " (:rhs r) " @ " (:rate r) \')))
+  (.write w (str \{ (:lhs r) " -> " (:rhs r) " @ " (:rate r) \})))
 
 (defn modify-state
   "Returns a function that modifies the state of site s in agent
@@ -159,11 +159,11 @@
   [c [a-id a] s new-state] ; c is a seq of lhs agent ids. a is a lhs agent id.
   ;; matching is a map from lhs complex to a map from lhs agents ids to mixture agents ids
   (fn [chamber matching]
-    (let [ma ((matching c) a-id)]
+    (let [ma-id ((matching c) a-id)]
       (-> chamber
-          (assoc-in [:mixture ma :states s] new-state)
+          (assoc-in [:mixture ma-id :states s] new-state)
           (vary-meta (fn [m] (update-in m [:modified-sites]
-                                        conj [ma s])))))))
+                                        conj [ma-id s])))))))
 
 (defn bind-agents
   "Returns a function that binds agents a1 and a2 through
@@ -358,16 +358,4 @@
   "Check if obj is a Kappa rule."
   [obj]
   (instance? Rule obj))
-
-
-;; TODO reachable-complexes and reachable-reactions
-(defn reachable-complexes
-  "Returns a lazy seq of all the complexes reachable by the system."
-  [rule-set initial-state]
-  nil)
-
-(defn reachable-reactions
-  "Returns a lazy seq of all the rule instances (i.e., reactions) reachable by the system."
-  [rule-set initial-state]
-  nil)
 

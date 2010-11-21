@@ -78,29 +78,30 @@
                  :let [ea-id (matched-complex pa-id),  e-oae [ea-id (e ea-id)]]]
              {[p-oae pa-site] [e-oae pa-site]}))))
 
+(defn modified-site-in-mixed-expr-codomain [mss e1 e2]
+  (let [;; compute a minimal mixed expression between e1 and e2
+        S (lang/with-complexes (create-mixed-expr e1 e2)),
+        
+        ;; compute the codomains of e1 and e2 in S
+        [e1-S e2-S] (map codomain [e1 e2] (repeat S)),
+        
+        ;; compute the intersection between the sites in the codomains of e1 and e2 in S
+        cod (apply set/intersection (map (comp set vals) [e1-S e2-S])),
+        
+        ;; get back the sites corresponding to that intersection in e1
+        dom (set (for [[pa-site ea-site] e1-S
+                       :when (cod ea-site)]
+                   pa-site))]
+    ;; if at least one of the sites in the intersection is a site modified by r
+    ;; then r1 activates/inhibits r2
+    (some dom mss)))
+
 (defn activates?
   "Tells whether r1 activates r2."
   [r1 r2]
-  (let [rhs1 (:rhs r1), lhs2 (:lhs r2),
-        mss (-> r1 :action meta :modified-sites),
-        
-        ;; compute a minimal mixed expression between rhs1 and lhs2
-        S (lang/with-complexes (create-mixed-expr rhs1 lhs2)),
-        
-        ;; compute the codomains of rhs1 and lhs2 in S
-        [rhs1->S lhs2->S] (map codomain [rhs1 lhs2] (repeat S)),
-        
-        ;; compute the intersection between the sites in the codomains of rhs1 and lhs2 in S
-        cod (apply set/intersection (map (comp set vals) [rhs1->S lhs2->S])),
-        
-        ;; get back the sites corresponding to that intersection in rhs1
-        dom (set (for [[pa-site ea-site] rhs1->S
-                       :when (cod ea-site)]
-                   pa-site))]
-    
-    ;; if at least one of the sites in the intersection is a site modified by r1
-    ;; then r2 is activated by r1
-    (some dom mss)))
+  (boolean
+   (modified-site-in-mixed-expr-codomain (-> r1 :action meta :modified-sites) ;; mss
+                                         (:rhs r1) (:lhs r2))))
 
 (defn activation-map
   "Returns a map from each rule r in rules to the rules r activates."
@@ -114,16 +115,9 @@
   [r1 r2]
   (if (identical? r1 r2)
     false
-    ;; see activates? for a detailed description of these steps
-    (let [lhs1 (:lhs r1), lhs2 (:lhs r2),
-          mss (-> r1 :action meta :modified-sites),
-          S (lang/with-complexes (create-mixed-expr lhs1 lhs2)),
-          [lhs1->S lhs2->S] (map codomain [lhs1 lhs2] (repeat S)),
-          cod (apply set/intersection (map (comp set vals) [lhs1->S lhs2->S])),
-          dom (set (for [[pa-site ea-site] lhs1->S
-                         :when (cod ea-site)]
-                     pa-site))]
-      (some dom mss))))
+    (boolean
+     (modified-site-in-mixed-expr-codomain (-> r1 :action meta :modified-sites) ;; mss
+                                           (:lhs r1) (:lhs r2)))))
 
 (defn inhibition-map
   "Returns a map from each rule r in rules to the rules r inhibits."
@@ -171,13 +165,19 @@
                     (partial apply concat) ;; but first make just one big list of all the maps
                     second)))))
 
-;;; TODO Observables map: like the matching map
+;;; Observables map: like a matching map for observed expressions
 (defn obs-map
   "Returns a map from observables (which are expressions) to the complexes they
   match to into the mixture.
   Note: not implemented yet."
   [observables mixture]
-  (into {} (for [obs observables]
-             [obs (filter (comp (partial lang/match obs) (partial lang/subexpr mixture))
-                          (-> mixture meta :complexes))])))
+  (let [om (for [obs observables]
+             [obs (set (filter (comp (partial lang/match obs)
+                                     (partial lang/subexpr mixture))
+                               (-> mixture meta :complexes)))])]
+    (with-meta (into {} om)
+      ;; metadata of obs-exprs is used as a simple lift map
+      (into {} (for [[obs embs] om
+                     emb embs, a emb]
+                 [a [obs emb]])))))
 

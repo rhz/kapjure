@@ -17,7 +17,7 @@
           (intern *ns* sym (var-get var))
           (intern *ns* sym))))))
 
-(apply immigrate '[kappa.language kappa.interp kappa.chamber kappa.maps])
+(apply immigrate '[kappa.language kappa.parser kappa.chamber kappa.maps])
 
 (comment ;; taken from potemkin
 (defmacro import-fn 

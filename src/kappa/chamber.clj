@@ -74,7 +74,7 @@
      (let [[mm lf] (maps/matching-and-lift-map rules mixture)]
        (-> (Chamber. rules mixture time 0 0 0 [] [] ; kcs and activities are computed later
                      mm lf (maps/activation-map rules) (maps/inhibition-map rules) ; maps
-                     (maps/obs-map obs-exprs mixture) obs-rules) ; observables
+                     (maps/obs-map obs-exprs mixture) (zipmap obs-rules (repeat {}))) ; observables
            (update-volume volume)
            (update-stochastic-cs)
            (update-activities)))))
@@ -139,8 +139,7 @@
         activated-rules ((:ram chamber) (:executed-rule m))
         aas (:added-agents m)
         mss (:modified-sites m)
-        mas (concat aas (map first mss))
-        cm-exprs (set (for [a-id mas
+        cm-exprs (set (for [a-id (concat aas (map first mss))
                             :let [cm (lang/complex mixture [a-id (mixture a-id)])]]
                         (with-meta (lang/subexpr mixture cm)
                           {:complexes [cm]})))
@@ -175,6 +174,54 @@
                               (update-in lm [a s] conj {:rule r, :complex c, :codomain cod}))
                             % cod-mates)))))
 
+;; TODO obs-update can be optimized if the activation and inhibition maps are
+;;      extended so rules can map to obs-exprs as well.
+(defn- obs-update [chamber]
+  (let [;;; obs-rules
+        executed-rule (:executed-rule (meta chamber))
+        obs-rules-updated (if (nil? ((:obs-rules chamber) executed-rule))
+                            chamber
+                            (update-in chamber [:obs-rules executed-rule] conj (:time chamber)))
+        ;;; obs-exprs
+        mixture (:mixture chamber)
+        ;; positive update
+        aas (:added-agents (meta chamber))
+        mss (:modified-sites (meta chamber))
+        mcs (set (for [a-id (concat aas (map first mss))] ; modified complexes
+                   (lang/complex mixture [a-id (mixture a-id)])))
+        embs (for [obs (keys (:obs-exprs chamber))
+                   emb (filter (comp (partial lang/match obs)
+                                     (partial lang/subexpr mixture)) mcs)]
+               [obs emb])
+        ;; negative update
+        not-embs (for [obs (keys (:obs-exprs chamber))
+                       not-emb (remove (comp (partial lang/match obs)
+                                             (partial lang/subexpr mixture)) mcs)]
+                   [obs not-emb])
+        rcs (for [obs (keys (:obs-exprs chamber))
+                  ra (:removed-agents (meta chamber))]
+              [obs #{ra}])]
+    (-> obs-rules-updated
+        ;; positive update
+        (update-in [:obs-exprs]
+                   #(reduce (fn [om [obs emb]]
+                              (-> (update-in om [obs] conj emb)
+                                  (vary-meta into (for [a emb] [a [obs emb]]))))
+                            % embs))
+        ;; negative update
+        (update-in [:obs-exprs]
+                   #(reduce (fn [om [obs rc]]
+                              (let [agent-complexes (meta om)]
+                                (reduce (fn [om ra]
+                                          (let [[obs-in-meta not-emb] (agent-complexes ra)]
+                                            (if (and (not (nil? not-emb))
+                                                     (= obs obs-in-meta))
+                                              (-> (update-in om [obs] disj not-emb)
+                                                  (vary-meta dissoc ra))
+                                              om)))
+                                        om rc)))
+                            % (concat rcs not-embs))))))
+
 (def *max-clashes* 8)
 
 (defn gen-event
@@ -197,19 +244,14 @@
           ;; meta cleanup first... so after the event the user can review the meta info
           (vary-meta merge {:added-agents [], :removed-agents [], :modified-sites []})
           (vary-meta merge {:executed-rule r})
-          ((:action r) m) negative-update positive-update
+          ((:action r) m) negative-update positive-update obs-update
           (assoc :clash-cnt 0)
           (update-in [:time] + dt)
           (update-activities (concat ((:ram chamber) r)
                                      ((:rim chamber) r) [r]))
           ((apply comp identity callbacks))))))
 
-;; Tengo que encontrar una manera de guardar los cambios que realiza action
-;; sobre la solucion, para asi despues poder pasarselo a negative-update,
-;; positive-update y los callbacks.
-;; Creo que la mejor manera es anhadiendo metadata al chamber cuando ejecuto
-;; la accion de la regla.
-;; Talvez lo mejor sea realizar el positive y negative update en cada accion.
+;; Talvez sea mejor realizar el positive y negative update en cada accion.
 
 ;; Hay que tener en mente que los compartimientos deben correr en paralelo y
 ;; debe existir una manera de pasar moleculas de un lado a otro y regresar en
@@ -220,13 +262,15 @@
 ;; que una cierta molecula deberia aparecer en un compartimiento vecino.
 ;; Cada compartimiento deberia estar etiquetado y esta etiqueta ser el estado
 ;; interno del sitio 'loc' en los agentes que necesiten especificar su ubicacion.
+;; Es el agente maestro realmente necesario?
 
 ;; La topologia del sistema queda definida implicitamente por las reglas.
 ;; Aquellos loc que aparecen en una misma regla estan conectados...
 ;; De hecho ni siquiera es necesario conocer la topologia para ejecutar el modelo
 
-;; Existe alguna manera de guardar el historial de cambios de un agente/ref/etc?
-;; Chamber esta pensado para ser contenido dentro de agentes.
+;; Debo crear una estructura que guarde el historial de cambios de un chamber
+;; y que sea capaz de olvidarse de un cierto tiempo (que le llegara a traves
+;; de un mensaje) hacia atras.
 
 (defn get-obs-expr-counts
   "Get a map from observables (which are expressions) to the counts they have at
@@ -236,4 +280,16 @@
          (for [step sim
                [obs m] (:obs-exprs step)]
            {obs [(count m)]})))
+
+
+;; TODO reachable-complexes and reachable-reactions
+(defn reachable-complexes
+  "Returns a lazy seq of all the complexes reachable by the system."
+  [rule-set initial-state]
+  nil)
+
+(defn reachable-reactions
+  "Returns a lazy seq of all the rule instances (i.e., reactions) reachable by the system."
+  [rule-set initial-state]
+  nil)
 

@@ -177,7 +177,7 @@
 (deftest tutorial
   (p/def-rules
     [r1 r1-op] "E(x), S(x) <-> E(x!1), S(x!1) @ 1,1"
-    r2 "E(x!1), S(x!1) -> E(x), P(x) @ 0.1")
+    r2 "E(x!1), S(x!1) -> E(x), P(x) @ 0.3")
   
   (p/def-exprs
     e1 "E(x), E(x), S(x), S(x), S(x), S(x)"
@@ -194,5 +194,5 @@
 
   (let [initial-chamber (chamber/make-chamber [r1 r1-op r2] e1 1 [obs1 obs2])
         simulation (take 10 (iterate chamber/gen-event initial-chamber))]
-    (chamber/get-obs-expr-counts simulation)))
+    (println (chamber/get-obs-expr-counts simulation))))
 
