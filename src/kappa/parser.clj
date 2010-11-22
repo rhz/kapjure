@@ -194,10 +194,19 @@
     "unidirectional arrow" "->" ::unidirectional-rule
     "bidirectional arrow" "<->" ::bidirectional-rule))
 
+(h/defrule- <string>
+  (h/rep* (apply h/+ <alphanumeric-string>
+                 (map h/lit [\- \_ \. \, \: \; \? \! \( \) \[ \] \{ \} \* \^ \+
+                             \/ \& \% \$ \# \@ \| \\ \º \ª \· \| \< \> \~]))))
+
 (h/defrule- <rule>
-  (h/for [name (h/opt (h/circumfix (h/lit \') <alphanumeric-string> (h/lit \'))),
-          lhs <expr>, arrow (circumfix-ws <arrow>), rhs <expr>,
-          rate (h/prefix (circumfix-ws (h/lit \@)) <number>),
+  "Consumes a Kappa rule."
+  {:no-memoize? true}
+  (h/for [name (h/opt (concat-nested-rules (h/circumfix (h/lit \') <string> (h/lit \')))),
+          lhs (h/prefix (h/opt <ws>) <expr>)
+          arrow (circumfix-ws <arrow>)
+          rhs <expr>
+          rate (h/prefix (circumfix-ws (h/lit \@)) <number>)
           second-rate (h/opt (h/prefix (circumfix-ws (h/lit \,)) <number>))]
     (if (= arrow ::unidirectional-rule)
       [(lang/make-rule name lhs rhs rate)]
@@ -206,10 +215,14 @@
 
 ;;; System
 (h/defrule- <init-line>
+  "Consumes a initial expression line in a Kappa system."
+  {:no-memoize? true}
   (h/hook (fn [e] {:init [e]})
           (h/prefix (h/phrase "%init: ") <expr>)))
 
 (h/defrule- <obs-line>
+  "Consumes an observable line in a Kappa system."
+  {:no-memoize? true}
   (h/prefix (h/phrase "%obs: ")
             (h/for [var-name (h/opt (h/circumfix (h/lit \') <alphanumeric-string> (h/lit \')))
                     expr (h/opt <expr>)]
@@ -218,6 +231,8 @@
                 {:obs-exprs [var-name] :vars [[var-name expr]]}))))
 
 (h/defrule- <var-line>
+  "Consumes a variable-declaration line in a Kappa system."
+  {:no-memoize? true}
   (h/prefix (h/phrase "%var: ")
             (h/for [var-name (h/circumfix (h/lit \') <alphanumeric-string> (h/lit \'))
                     expr <expr>]
@@ -231,6 +246,8 @@
                           (map vars obs-exprs) obs-rules)))
 
 (h/defrule- <system>
+  "Consumes a Kappa system specification."
+  {:no-memoize? true}
   (h/hook make-system
           (h/separated-rep (circumfix-ws <line-break>)
                            (h/+ <rule> <init-line> <obs-line> <var-line>))))

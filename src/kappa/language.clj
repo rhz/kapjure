@@ -70,18 +70,14 @@
 (defn with-complexes [expr]
   (vary-meta expr merge {:complexes (compute-complexes expr)}))
 
-;; TODO candidate for removal
-(defn get-complexes
-  "Returns a seq with the ids of the complexes in expr."
-  [expr]
-  (if (:complexes (meta expr))
-    (:complexes (meta expr))
-    (with-complexes expr)))
-
 (defn subexpr
   "Gets the subexpression for the given ids and expression expr."
   [expr ids]
   (zipmap ids (map expr ids)))
+
+(defn mix-exprs [& exprs]
+  (with-meta (apply merge exprs)
+    {:complexes (mapcat (comp :complexes meta) exprs)}))
 
 (defn expression?
   "Check if obj is a Kappa expression."
@@ -276,7 +272,7 @@
                 (when (and (not (number? lb)) (number? rb))
                   {:bound [[(get-lhs-agent rb lhs-rhs) lhs-agent site]]})
                 (when (and (number? lb) (not (number? rb)))
-                  {:unbound [[[lb (lhs lb)] lhs-agent site]]})
+                  {:unbound [[(find lhs lb) lhs-agent site]]})
                 (when (and (= lb :semi-link) (not= rb :semi-link))
                   {:unbound [[nil lhs-agent site]]}))))))
        (apply concat)

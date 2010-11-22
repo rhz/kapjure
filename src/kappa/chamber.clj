@@ -140,7 +140,7 @@
         aas (:added-agents m)
         mss (:modified-sites m)
         cm-exprs (set (for [a-id (concat aas (map first mss))
-                            :let [cm (lang/complex mixture [a-id (mixture a-id)])]]
+                            :let [cm (lang/complex mixture (find mixture a-id))]]
                         (with-meta (lang/subexpr mixture cm)
                           {:complexes [cm]})))
         ;; for every c in C(r') try to find a unique embedding
@@ -188,7 +188,7 @@
         aas (:added-agents (meta chamber))
         mss (:modified-sites (meta chamber))
         mcs (set (for [a-id (concat aas (map first mss))] ; modified complexes
-                   (lang/complex mixture [a-id (mixture a-id)])))
+                   (lang/complex mixture (find mixture a-id))))
         embs (for [obs (keys (:obs-exprs chamber))
                    emb (filter (comp (partial lang/match obs)
                                      (partial lang/subexpr mixture)) mcs)]

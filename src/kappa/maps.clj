@@ -15,23 +15,27 @@
     (let [{name :name, a1states :states, a1bindings :bindings} a1
           {a2states :states, a2bindings :bindings} a2
           sites (set/union (-> a1states keys set) (-> a2states keys set))
-          states (into {} (for [site sites]
-                            (let [s1 (a1states site), s2 (a2states site)]
+          states (into {} (for [site sites
+                                :let [s1 (a1states site), s2 (a2states site)]]
+                            (cond
+                              (or (nil? s1) (= s1 "") (= s1 s2)) [site s2]
+                              (or (nil? s2) (= s2 "")) [site s1]
+                              :else (c/raise :type :unmixable-agents))))
+          bindings (into {} (for [site sites
+                                  :let [b1 (a1bindings site), b2 (a2bindings site)]]
                               (cond
-                                (or (nil? s1) (= s1 "") (= s1 s2)) [site s2]
-                                (or (nil? s2) (= s2 "")) [site s1]
-                                :else (c/raise :type :unmixable-agents)))))
-          bindings (into {} (for [site sites]
-                              (let [b1 (a1bindings site), b2 (a2bindings site)]
-                                (cond
-                                  (and (= b1 :free) (= b2 :free)) [site :free]
-                                  (or (nil? b1) (= b1 :unspecified)) [site b2]
-                                  (or (nil? b2) (= b2 :unspecified)) [site b1]
-                                  (and (= b1 :semi-link) (number? b2)) [site b2]
-                                  (and (= b2 :semi-link) (number? b1)) [site b1]
-                                  (and (number? b1) (number? b2)
-                                       (= (key (lang/get-lhs-agent b2 e1-e2)) b1)) [site b1]
-                                  :else (c/raise :type :unmixable-agents)))))]
+                                (and (= b1 :free) (= b2 :free)) [site :free]
+                                (or (nil? b1) (= b1 :unspecified)) [site b2]
+                                (or (nil? b2) (= b2 :unspecified)) [site b1]
+                                (and (= b1 :semi-link) (number? b2)) [site b2]
+                                (and (= b2 :semi-link) (number? b1)) [site b1]
+                                (and (number? b1) (number? b2))
+                                (if-let [lhs-agent (lang/get-lhs-agent b2 e1-e2)]
+                                  (if (= (key lhs-agent) b1)
+                                    [site b1]
+                                    (c/raise :type :unmixable-agents))
+                                  (c/raise :type :unmixable-agents))
+                                :else (c/raise :type :unmixable-agents))))]
       (lang/make-agent name states bindings))
     (handle :unmixable-agents nil)))
 
@@ -75,7 +79,7 @@
                  ;; for each site in each agent of p-complex
                  [pa-id pa :as p-oae] p-complex, pa-site (-> pa :states keys)
                  
-                 :let [ea-id (matched-complex pa-id),  e-oae [ea-id (e ea-id)]]]
+                 :let [ea-id (matched-complex pa-id),  e-oae (find e ea-id)]]
              {[p-oae pa-site] [e-oae pa-site]}))))
 
 (defn modified-site-in-mixed-expr-codomain [mss e1 e2]
