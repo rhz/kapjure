@@ -6,8 +6,8 @@
   :tasks [protobuf.tasks]
   :dependencies [[clojure "1.2.0"]
                  [clojure-contrib "1.2.0"]
-                 [org.clojars.ohpauleez/fnparse "3.0.0alpha4"]]
-                 ;;[org.clojars.hiredman/fnparse "2.2.4"]]
-  :aot [kappa.isomerization]
+                 [org.clojars.ohpauleez/fnparse "3.0.0alpha4"]
+                 [incanter "1.2.3"]]
+  :aot [kappa.isomerization kappa.simple-models]
   :warn-on-reflection true)
 

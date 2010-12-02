@@ -92,8 +92,20 @@ If you want to get a map for their counts, just call `get-obs-counts`:
           simulation (take 10 (iterate k/gen-event initial-chamber))]
       (k/get-obs-expr-counts simulation))
 
-This could be easily put in a graph using <a href="http://incanter.org/">Incanter</a>.
-(a function that does this for you is planned also).
+This could be easily plotted using <a href="http://incanter.org/">Incanter</a>.
+In fact, the function `plot-obs-exprs` in `kappa.graphics` will make this plot for you.
+To call it, you must pass it the simulation (a sequence of chambers) and optionally a title:
+
+    (require '[kappa.graphics :as g])
+    (let [initial-chamber (k/make-chamber [r1 r1-op r2] e1 1 [obs1 obs2])
+          simulation (take 10 (iterate k/gen-event initial-chamber))]
+      (g/view (g/get-obs-expr-counts simulation :title "Michaelian enzyme")))
+
+The `view` and `save` functions in `kappa.graphics` do exactly the same as their
+homonymous functions in `incanter.core`.
+These two functions have been exposed through `kappa.graphics` so you don't
+have to import Incanter as well.
+
 
 ### Contributors
 
