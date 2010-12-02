@@ -289,8 +289,8 @@
                                                                                  #(take 2 %)))
                                                                 first misc/third)]]
                                               #{[a1 s1] [a2 s2]}))]
-                    ;; sets doesn't preserve order, so these [a1 s1] and [a2 s2] are not
-                    ;; the same as above
+                    ;; sets doesn't preserve order, so these [a1 s1] and [a2 s2]
+                    ;; are not the same as above
                     (let [[a1 s1] (first site-pair), [a2 s2] (second site-pair)]
                       (cond
                         ;; TODO can this happen for bind-agents?

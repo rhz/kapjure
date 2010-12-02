@@ -293,3 +293,25 @@
   [rule-set initial-state]
   nil)
 
+
+;;; Using Clojure agents to perform several simulations simultaneously
+
+(defn psimulate [chamber num-steps num-simulations & callbacks]
+  (let [obs-expr-counts (get-obs-expr-counts [chamber])
+        sim-agents (repeatedly num-simulations #(agent {:chamber chamber
+                                                        :obs-expr-counts obs-expr-counts
+                                                        :time [(:time chamber)]}))
+        gen-event-and-store (fn [res]
+                              (let [updated-chamber (apply gen-event (:chamber res) callbacks)
+                                    counts (get-obs-expr-counts [updated-chamber])]
+                               (-> res
+                                 (assoc :chamber updated-chamber)
+                                 (update-in [:obs-expr-counts] #(merge-with (comp doall concat)
+                                                                            % counts))
+                                 (update-in [:time] conj (:time updated-chamber)))))]
+    (doseq [a sim-agents]
+      (dotimes [_ num-steps]
+        (send a gen-event-and-store)))
+    (apply await sim-agents)
+    (map (comp #(select-keys % [:obs-expr-counts :time]) deref) sim-agents)))
+
