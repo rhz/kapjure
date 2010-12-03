@@ -8,77 +8,101 @@
             [clojure.contrib.math :as m]
             [clojure.contrib.generic.math-functions :as math]))
 
-;;; Chambers
-(defrecord Chamber [rules mixture time event-cnt clash-cnt
-                    volume stochastic-cs activities
-                    matching-map lift-map ram rim obs-exprs obs-rules])
 
-(defn- update-volume [chamber new-volume]
-  (-> chamber
-      (assoc :volume new-volume)
-      (vary-meta assoc :volume-changed? true)))
+(defrecord DeterministicChamber [rules mixture time event-cnt clash-cnt volume stochastic-cs
+                                 activity-map matching-map lift-map ram rim obs-exprs obs-rules])
 
+(defrecord StochasticChamber [rules mixture time event-cnt clash-cnt
+                              activity-map matching-map lift-map ram rim obs-exprs obs-rules])
+
+;;; Stochastic constants
 (defn- determ2stoch [volume rule]
-  (let [n-avogadro 6.022e23
-        num-complexes (-> rule :lhs meta :complexes count) ;; reaction's order
+  (let [N-avogadro 6.022E23
         rate (:rate rule)
+        num-complexes (-> rule :lhs meta :complexes count) ;; reaction's order
         aut (-> rule :lhs meta :automorphisms)]
+    
     (cond
-      (zero? num-complexes) (/ (* rate volume) n-avogadro)
+      (zero? num-complexes) (/ (* rate volume) N-avogadro)
       (= num-complexes 1) rate
-      (> num-complexes 1) (/ (* rate aut (m/expt n-avogadro (dec num-complexes)))
+      (> num-complexes 1) (/ (* rate aut (m/expt N-avogadro (dec num-complexes)))
                              (m/expt volume (dec num-complexes))))))
 
 (defn- update-stochastic-cs [chamber]
-  (if (:volume-changed? (meta chamber))
-    (-> chamber
-        (vary-meta assoc :volume-changed? false)
-        (assoc :stochastic-cs (zipmap (:rules chamber)
-                                      (map (partial determ2stoch (:volume chamber))
-                                           (:rules chamber))))
-        (vary-meta assoc :kcs-changed? true))
-    chamber))
+  (assoc chamber :stochastic-cs (zipmap (:rules chamber)
+                                        (map (partial determ2stoch (:volume chamber))
+                                             (:rules chamber)))))
 
+(defn update-volume-and-cs [chamber volume]
+  (-> chamber
+    (assoc :volume volume)
+    (update-stochastic-cs)))
+
+;;; Activities
 (defn- activity [ms k aut] ; matchings (ms) and stochastic kinetic constant (k)
   (/ (apply * k (map (comp count val) ms)) aut))
 
-(defn- update-activities
+(defmulti update-activities
+  "Update the activities of rules, if given. Otherwise update all activities."
+  {:arglists '([chamber] [chamber rules])}
+  (fn [chamber & _] (class chamber)))
+
+(defmethod update-activities DeterministicChamber
   ([chamber]
-     (let [updated-chamber (update-stochastic-cs chamber)]
-       (if (:kcs-changed? (meta chamber))
-         (let [mm (:matching-map chamber)
-               kcs (:stochastic-cs chamber)
-               rules (:rules chamber)]
-           (-> chamber
-               (vary-meta assoc :kcs-changed? false)
-               (assoc :activities
-                 (into {} (map (fn [r]
-                                 [r (activity (mm r) (kcs r) (-> r :lhs meta :automorphisms))])
-                               rules)))))
-         chamber)))
+     (let [mm (:matching-map chamber)
+           cs (:stochastic-cs chamber)]
+       (assoc chamber :activity-map
+              (into {} (for [r (:rules chamber)]
+                         [r (activity (mm r) (cs r) (-> r :lhs meta :automorphisms))])))))
   ([chamber rules]
      (let [mm (:matching-map chamber)
            cs (:stochastic-cs chamber)]
-       (update-in chamber [:activities]
+       (update-in chamber [:activity-map]
                   #(reduce (fn [am r]
                              (assoc am r (activity (mm r) (cs r)
                                                    (-> r :lhs meta :automorphisms))))
                            % rules)))))
 
-(defn make-chamber
-  ([rules mixture volume obs-exprs]
-     (make-chamber rules mixture volume 0 obs-exprs []))
-  ([rules mixture volume obs-exprs obs-rules]
-     (make-chamber rules mixture volume 0 obs-exprs obs-rules))
-  ([rules mixture volume time obs-exprs obs-rules]
-     (let [[mm lf] (maps/matching-and-lift-map rules mixture)]
-       (-> (Chamber. rules mixture time 0 0 0 [] [] ; kcs and activities are computed later
-                     mm lf (maps/activation-map rules) (maps/inhibition-map rules) ; maps
-                     (maps/obs-map obs-exprs mixture) (zipmap obs-rules (repeat {}))) ; observables
-           (update-volume volume)
-           (update-stochastic-cs)
-           (update-activities)))))
+(defmethod update-activities StochasticChamber
+  ([chamber]
+     (let [mm (:matching-map chamber)]
+       (assoc chamber :activity-map
+              (into {} (for [r (:rules chamber)]
+                         [r (activity (mm r) (:rate r) (-> r :lhs meta :automorphisms))])))))
+  ([chamber rules]
+     (let [mm (:matching-map chamber)]
+       (update-in chamber [:activity-map]
+                  #(reduce (fn [am r]
+                             (assoc am r (activity (mm r) (:rate r)
+                                                   (-> r :lhs meta :automorphisms))))
+                           % rules)))))
 
+;;; Constructors
+(defn make-deterministic-chamber
+  ([rules mixture volume obs-exprs]
+     (make-deterministic-chamber rules mixture volume obs-exprs []))
+  ([rules mixture volume obs-exprs obs-rules]
+     (let [[mm lf] (maps/matching-and-lift-map rules mixture)]
+       (-> (DeterministicChamber. rules mixture 0 0 0 volume
+                                  [] [] ; cs and activities are computed later
+                                  mm lf (maps/activation-map rules) (maps/inhibition-map rules)
+                                  (maps/obs-map obs-exprs mixture) ; observed expressions
+                                  (zipmap obs-rules (repeat {}))) ; observed rules
+         (update-stochastic-cs)
+         (update-activities)))))
+
+(defn make-stochastic-chamber
+  ([rules mixture obs-exprs]
+     (make-stochastic-chamber rules mixture obs-exprs []))
+  ([rules mixture obs-exprs obs-rules]
+     (let [[mm lf] (maps/matching-and-lift-map rules mixture)]
+       (-> (StochasticChamber. rules mixture 0 0 0 [] ; activities are computed later
+                               mm lf (maps/activation-map rules) (maps/inhibition-map rules)
+                               (maps/obs-map obs-exprs mixture) ; observed expressions
+                               (zipmap obs-rules (repeat {}))) ; observed rules
+         (update-activities)))))
+
+;;; Events
 (defn- time-advance [activities]
   (/ (math/log (/ 1 (rand)))
      (apply + (vals activities))))
@@ -231,25 +255,27 @@
   can update chamber's properties (e.g. volume) or communicate with the organizer."
   [chamber & callbacks]
   (when (or (> (:clash-cnt chamber) *max-clashes*)
-            (every? zero? (vals (:activities chamber))))
+            (every? zero? (vals (:activity-map chamber))))
     (throw (Exception. "Deadlock found!")))
-  (let [r (select-rule (:activities chamber))
+  (let [r (select-rule (:activity-map chamber))
         m (select-matching-per-complex ((:matching-map chamber) r))
-        dt (time-advance (:activities chamber))]
+        dt (time-advance (:activity-map chamber))]
     (if (clash? m)
       (-> chamber
-          (update-in [:clash-cnt] inc) ; increment clash-cnt
-          (update-in [:time] + dt)) ; and time
+        (update-in [:clash-cnt] inc) ; increment clash-cnt
+        (update-in [:time] + dt) ; and time
+        (update-in [:event-cnt] inc))
       (-> chamber
-          ;; meta cleanup first... so after the event the user can review the meta info
-          (vary-meta merge {:added-agents [], :removed-agents [], :modified-sites []})
-          (vary-meta merge {:executed-rule r})
-          ((:action r) m) negative-update positive-update obs-update
-          (assoc :clash-cnt 0)
-          (update-in [:time] + dt)
-          (update-activities (concat ((:ram chamber) r)
-                                     ((:rim chamber) r) [r]))
-          ((apply comp identity callbacks))))))
+        ;; meta cleanup first... so after the event the user can review the meta info
+        (vary-meta merge {:added-agents [], :removed-agents [], :modified-sites []})
+        (vary-meta merge {:executed-rule r})
+        ((:action r) m) negative-update positive-update obs-update
+        (assoc :clash-cnt 0)
+        (update-in [:time] + dt)
+        (update-in [:event-cnt] inc)
+        (update-activities (concat ((:ram chamber) r)
+                                   ((:rim chamber) r) [r]))
+        ((apply comp identity callbacks))))))
 
 ;; Talvez sea mejor realizar el positive y negative update en cada accion.
 
@@ -276,10 +302,20 @@
   "Get a map from observables (which are expressions) to the counts they have at
   each simulation step."
   [sim]
-  (apply merge-with concat
-         (for [step sim
-               [obs m] (:obs-exprs step)]
-           {obs [(count m)]})))
+  (let [obs-exprs (set (mapcat (comp keys :obs-exprs) sim))]
+    (into {} (for [obs obs-exprs]
+               [obs (map (comp count #(% obs) :obs-exprs) sim)]))))
+
+
+;;; Using Clojure futures to perform several simulations simultaneously
+
+(defn psimulate [chamber num-steps num-simulations & callbacks]
+  (let [sims (map deref
+                  (doall (repeatedly num-simulations
+                                     #(future (doall (take num-steps
+                                                           (iterate gen-event chamber)))))))]
+    (for [sim sims]
+      {:time (map :time sim) :obs-expr-counts (get-obs-expr-counts sim)})))
 
 
 ;; TODO reachable-complexes and reachable-reactions
@@ -292,26 +328,4 @@
   "Returns a lazy seq of all the rule instances (i.e., reactions) reachable by the system."
   [rule-set initial-state]
   nil)
-
-
-;;; Using Clojure agents to perform several simulations simultaneously
-
-(defn psimulate [chamber num-steps num-simulations & callbacks]
-  (let [obs-expr-counts (get-obs-expr-counts [chamber])
-        sim-agents (repeatedly num-simulations #(agent {:chamber chamber
-                                                        :obs-expr-counts obs-expr-counts
-                                                        :time [(:time chamber)]}))
-        gen-event-and-store (fn [res]
-                              (let [updated-chamber (apply gen-event (:chamber res) callbacks)
-                                    counts (get-obs-expr-counts [updated-chamber])]
-                               (-> res
-                                 (assoc :chamber updated-chamber)
-                                 (update-in [:obs-expr-counts] #(merge-with (comp doall concat)
-                                                                            % counts))
-                                 (update-in [:time] conj (:time updated-chamber)))))]
-    (doseq [a sim-agents]
-      (dotimes [_ num-steps]
-        (send a gen-event-and-store)))
-    (apply await sim-agents)
-    (map (comp #(select-keys % [:obs-expr-counts :time]) deref) sim-agents)))
 

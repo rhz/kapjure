@@ -13,9 +13,10 @@
                 death "Y2(x) -> Z(x) @ 10"] ; and Y2 is the predator
     (p/let-exprs [initial-mixture "1000 * Y1(x), 1000 * Y2(x), 10 * X(x)"
                   Y1 "Y1(x)" Y2 "Y2(x)"]
-      (let [chamber (c/make-chamber [replication predation death] initial-mixture 1 [Y1 Y2])
-            results (c/psimulate chamber num-steps num-simulations)]
-        (g/get-avg-result results)))))
+      (let [chamber (c/make-stochastic-chamber [replication predation death] initial-mixture [Y1 Y2])
+            results (c/psimulate chamber num-steps num-simulations)
+            rpd (inc (quot num-steps 500))] ; to plot just 500 points... FIXME is this right?
+        (g/get-avg-result results :rpd rpd)))))
 
 
 (defn brusselator [num-steps num-simulations]
@@ -25,9 +26,10 @@
                 r4 "Y1(x) -> Z2(x) @ 5"]
     (p/let-exprs [initial-mixture "1000 * Y1(x), 2000 * Y2(x), 5 * X1(x), 5 * X2(x)"
                   Y1 "Y1(x)" Y2 "Y2(x)"]
-      (let [chamber (c/make-chamber [r1 r2 r3 r4] initial-mixture 1 [Y1 Y2])
-            results (c/psimulate chamber num-steps num-simulations)]
-        (g/get-avg-result results)))))
+      (let [chamber (c/make-stochastic-chamber [r1 r2 r3 r4] initial-mixture [Y1 Y2])
+            results (c/psimulate chamber num-steps num-simulations)
+            rpd (inc (quot num-steps 500))]
+        (g/get-avg-result results :rpd rpd)))))
 
 
 (defn oreganator [num-steps num-simulations]
@@ -38,9 +40,10 @@
                 r5 "X3(x), Y3(x) -> Y2(x), X3(x) @ 2.6"]
     (p/let-exprs [initial-mixture "500 * Y1(x), 1000 * Y2(x), 2000 * Y3(x), 10 * X1(x), 10 * X2(x), 10 * X3(x)"
                   Y1 "Y1(x)" Y2 "Y2(x)" Y3 "Y3(x)"]
-      (let [chamber (c/make-chamber [r1 r2 r3 r4 r5] initial-mixture 1 [Y1 Y2 Y3])
-            results (c/psimulate chamber num-steps num-simulations)]
-        (g/get-avg-result results)))))
+      (let [chamber (c/make-stochastic-chamber [r1 r2 r3 r4 r5] initial-mixture [Y1 Y2 Y3])
+            results (c/psimulate chamber num-steps num-simulations)
+            rpd (inc (quot num-steps 500))]
+        (g/get-avg-result results :rpd rpd)))))
 
 
 (defn futile-cycle [num-steps num-simulations]
@@ -51,22 +54,27 @@
                 r5 "S(s!_) -> S(s) @ 0.23"]
     (p/let-exprs [initial-mixture "1000000 * G(s~gdp), 11000 * S(s~y), 89000 * S(s~n)"
                   Ggdp "G(s~gdp)" Ggtp "G(s~gtp)"]
-      (let [chamber (c/make-chamber [r1 r2 r3 r4 r5] initial-mixture 1 [Ggdp Ggtp])
-            results (c/psimulate chamber num-steps num-simulations)]
-        (g/get-avg-result results)))))
+      (let [chamber (c/make-stochastic-chamber [r1 r2 r3 r4 r5] initial-mixture [Ggdp Ggtp])
+            results (c/psimulate chamber num-steps num-simulations)
+            rpd (inc (quot num-steps 500))]
+        (g/get-avg-result results :rpd rpd)))))
 
 
 (defn isomerization [num-steps num-simulations]
   (p/let-rules [r1 "A(x) -> B(x) @ 1"]
     (p/let-exprs [initial-mixture "1000000 * A(x)"
                   A "A(x)" B "B(x)"]
-      (let [initial-chamber (c/make-chamber [r1] initial-mixture 1 [A B])
-            results (c/psimulate initial-chamber num-steps num-simulations)]
-        (g/get-avg-result results)))))
+      (let [chamber (c/make-stochastic-chamber [r1] initial-mixture [A B])
+            results (c/psimulate chamber num-steps num-simulations)
+            rpd (inc (quot num-steps 500))]
+        (g/get-avg-result results :rpd rpd)))))
 
 
 (defn -main [num-steps num-simulations]
   (read-line)
-  (g/view (g/plot-result (lotka-volterra (Integer/parseInt num-steps)
-                                         (Integer/parseInt num-simulations)))))
+  (let [result (time (lotka-volterra (Integer/parseInt num-steps)
+                                     (Integer/parseInt num-simulations)))]
+    (shutdown-agents)
+    (read-line)
+    (time (g/view (g/plot-result result)))))
 
