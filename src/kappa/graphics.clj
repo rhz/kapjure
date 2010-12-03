@@ -41,6 +41,7 @@
 
 (defn- interpolate [t tcps] ; tcps = time-and-counts-pairs
   (if-let [[[t1 v1] [t2 v2]] (first (filter (fn [[[t1 v1] [t2 v2]]]
+                                              ;; TODO performance problem here!
                                               (and (>= t t1) (<= t t2))) tcps))]
     (let [slope (/ (- v2 v1) (- t2 t1))]
       (+ v1 (* slope (- t t1))))
@@ -69,26 +70,32 @@
 (defn get-all-results
   "Interpolate and then average the counts for the observed expressions
   in sim-results for all time steps."
-  [sim-results]
-  (get-results sim-results (distinct (apply concat (map :time sim-results)))))
+  [sim-results & {rpd :rpd :or {:rpd 1}}]
+  (let [time-steps (distinct
+                    (apply concat (map (comp #(map first (partition rpd %)) :time) sim-results)))]
+    (get-results sim-results time-steps)))
 
 (defn get-avg-result
   "Interpolate and then average the counts for the observed expressions
   in sim-results for the average of each time step."
-  [sim-results]
-  (get-results sim-results (apply map (comp stats/mean vector) (map :time sim-results))))
+  [sim-results & {rpd :rpd :or {:rpd 1}}]
+  (let [time-steps (apply map (comp stats/mean vector)
+                          (map (comp #(map first (partition rpd %)) :time) sim-results))]
+    (get-results sim-results time-steps)))
 
 (defn get-most-repr-result
   "Calls kappa.graphics/get-all-results and then return the simulation
   in sim-results that is most similar to the interpolated result."
-  [sim-results & {norm :norm :or {:norm :supremum}}]
-  (let [results (get-all-results sim-results)
+  [sim-results & {norm :norm rpd :rpd :or {:norm :supremum :rpd 1}}]
+  (let [results (get-all-results sim-results :rpd rpd)
+        ;; FIXME (map vector results) don't make sense
+        ;; as it is a map {:time ... :obs-expr-counts ...}
         results-map (into {} (map vector results))
-        ;; is this the supremum norm?
         norm (fn [x]
                (case norm
-                 :supremum (fn [y] (m/expt (- x y) 2))))
+                 :supremum (fn [y] (m/expt (- x y) 2)))) ; FIXME is this the supremum norm?
         error (map #(map (norm (results-map %)) %)
+                   ;; FIXME next form returns a seq of maps, not seqs
                    (map :obs-expr-counts sim-results))
         error-to-sim (zipmap (map (partial apply +) error) sim-results)]
     (error-to-sim (apply min (keys error-to-sim)))))
