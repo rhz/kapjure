@@ -228,15 +228,16 @@
   3. A seq of lhs oaes that doesn't have a counterpart in rhs. These agents will be
      destroyed by the rule."
   [lhs rhs]
-  (let [names (map #(set (map (comp :name val) %)) [lhs rhs])
+  (let [[lhs-names rhs-names] (map #(set (map (comp :name val) %)) [lhs rhs])
         
         [lhs-agents-by-name rhs-agents-by-name]
         (map (fn [expr names]
                (apply merge (for [name names]
-                              {name (filter #(= name (-> % val :name)) expr)})))
-             [lhs rhs] names)]
+                              {name (filter #(= name (-> % val :name))
+                                            (sort-by key expr))})))
+             [lhs rhs] [lhs-names rhs-names])]
     
-    (->> (for [name (apply set/union names)]
+    (->> (for [name (set/union lhs-names rhs-names)]
            (let [lhs-agents (lhs-agents-by-name name), n (count lhs-agents),
                  rhs-agents (rhs-agents-by-name name), m (count rhs-agents)]
              (cond
@@ -283,24 +284,25 @@
          (modify-state (complex lhs lhs-agent) lhs-agent site new-state))
        mss))
 
-(let [common-fn (fn [ss lhs f]
-                  (for [site-pair (into #{} (for [[a2 a1 s1] ss
-                                                  :let [s2 (->> ss (filter (comp #{[a1 a2]}
-                                                                                 #(take 2 %)))
-                                                                first misc/third)]]
-                                              #{[a1 s1] [a2 s2]}))]
-                    ;; sets doesn't preserve order, so these [a1 s1] and [a2 s2]
-                    ;; are not the same as above
-                    (let [[a1 s1] (first site-pair), [a2 s2] (second site-pair)]
-                      (cond
-                        ;; TODO can this happen for bind-agents?
-                        (some nil? [a2 s2]) (f (complex lhs a1) a1 s1)
-                        (some nil? [a1 s1]) (f (complex lhs a2) a2 s2)
-                        :else (f (complex lhs a1) a1 s1 (complex lhs a2) a2 s2)))))]
-  (defn- get-bind-agents-fns [{bss :bound} lhs]
-    (common-fn bss lhs bind-agents))
-  (defn- get-unbind-agents-fns [{uss :unbound} lhs]
-    (common-fn uss lhs unbind-agents)))
+(defn- get-fns [f ss lhs]
+  (for [site-pair (into #{} (for [[a2 a1 s1] ss
+                                  :let [s2 (->> ss (filter (comp #{[a1 a2]}
+                                                                 #(take 2 %)))
+                                                first misc/third)]]
+                              #{[a1 s1] [a2 s2]}))]
+    ;; sets doesn't preserve order, so these [a1 s1] and [a2 s2] are not the same as above
+    (let [[a1 s1] (first site-pair), [a2 s2] (second site-pair)]
+      (cond
+        ;; TODO can this happen for bind-agents? it happens!
+        (some nil? [a2 s2]) (f (complex lhs a1) a1 s1)
+        (some nil? [a1 s1]) (f (complex lhs a2) a2 s2)
+        :else (f (complex lhs a1) a1 s1 (complex lhs a2) a2 s2)))))
+
+(defn- get-bind-agents-fns [{bss :bound} lhs]
+  (get-fns bind-agents bss lhs))
+
+(defn- get-unbind-agents-fns [{uss :unbound} lhs]
+  (get-fns unbind-agents uss lhs))
 
 (defn elementary-actions [lhs rhs]
   (let [[lhs-rhs created-agents removed-agents] (pair-exprs lhs rhs)
@@ -311,7 +313,7 @@
 
         ;; get every modified site
         {:keys [bound unbound modified]} modified-sites
-        
+
         [bss-lhs uss-lhs] (map #(for [[a2 a1 s1] %] [a1 s1]) [bound unbound])
         [bss-rhs uss-rhs] (map #(for [[[a1-id a1] s1] %]
                                   [(get-rhs-agent a1-id lhs-rhs) s1])

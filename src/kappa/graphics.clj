@@ -19,7 +19,7 @@
 
 (defn plot-result
   "Plot the results of a simulation (as returned by kappa.chamber/psimulate)."
-  [result & {title :title :or {:title ""}}]
+  [result & {:keys [title] :or {title ""}}]
   (let [{time-steps :time obs-expr-counts :obs-expr-counts} result
         obs-exprs (keys obs-expr-counts)
         plot (charts/xy-plot time-steps (obs-expr-counts (first obs-exprs))
@@ -36,7 +36,7 @@
 
 (defn plot-obs-exprs
   "Plot the observed expressions of a seq of chambers."
-  [sim & {title :title :or {:title ""}}]
+  [sim & {:keys [title] :or {title ""}}]
   (plot-result (map :time sim) (chamber/get-obs-expr-counts sim) :title title))
 
 (defn- interpolate [t tcps] ; tcps = time-and-counts-pairs
@@ -70,7 +70,7 @@
 (defn get-all-results
   "Interpolate and then average the counts for the observed expressions
   in sim-results for all time steps."
-  [sim-results & {rpd :rpd :or {:rpd 1}}]
+  [sim-results & {:keys [rpd] :or {rpd 1}}]
   (let [time-steps (distinct
                     (apply concat (map (comp #(map first (partition rpd %)) :time) sim-results)))]
     (get-results sim-results time-steps)))
@@ -78,7 +78,7 @@
 (defn get-avg-result
   "Interpolate and then average the counts for the observed expressions
   in sim-results for the average of each time step."
-  [sim-results & {rpd :rpd :or {:rpd 1}}]
+  [sim-results & {:keys [rpd] :or {rpd 1}}]
   (let [time-steps (apply map (comp stats/mean vector)
                           (map (comp #(map first (partition rpd %)) :time) sim-results))]
     (get-results sim-results time-steps)))
@@ -86,10 +86,10 @@
 (defn get-most-repr-result
   "Calls kappa.graphics/get-all-results and then return the simulation
   in sim-results that is most similar to the interpolated result."
-  [sim-results & {norm :norm rpd :rpd :or {:norm :supremum :rpd 1}}]
+  [sim-results & {:keys [norm rpd] :or {norm :supremum rpd 1}}]
   (let [results (get-all-results sim-results :rpd rpd)
         ;; FIXME (map vector results) don't make sense
-        ;; as it is a map {:time ... :obs-expr-counts ...}
+        ;; as results is a map {:time ... :obs-expr-counts ...}
         results-map (into {} (map vector results))
         norm (fn [x]
                (case norm
@@ -102,7 +102,7 @@
 
 (defn mean-plot
   "Plot the average behaviour of the simulations in sim-results."
-  [sim-results & {error-bars :error-bars :or {:error-bars :sd}}]
+  [sim-results & {:keys [error-bars] :or {error-bars :sd}}]
   (let [time-steps (apply map (comp stats/mean vector) (map :time sim-results))
         counts (interpolate-results sim-results time-steps)
         counts-mean (apply-to-steps stats/mean counts time-steps)

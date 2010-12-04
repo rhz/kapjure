@@ -55,7 +55,7 @@ new states the chamber can transform into you use `gen-event`.
 New states are generated based on the modified stochastic simulation algorithm (Gillespie's algorithm)
 that appears in this <a href="http://www.springerlink.com/content/k6202r6207358424/">paper</a>.
 
-    (let [initial-chamber (k/make-chamber [r1 r1-op r2] e1 1 [obs1 obs2])]
+    (let [initial-chamber (k/make-chamber [r1 r1-op r2] e1 [obs1 obs2] [])]
       (take 10 (iterate k/gen-event initial-chamber)))
 
 Here we use Clojure's
@@ -74,7 +74,7 @@ as we have done with `iterate` and `take` in the previous code.
 
 After you have a simulation, you can ask what was the solution and the time at each generated state:
 
-    (let [initial-chamber (k/make-chamber [r1 r1-op r2] e1 1 [obs1 obs2])
+    (let [initial-chamber (k/make-chamber [r1 r1-op r2] e1 [obs1 obs2] [])
           simulation (take 10 (iterate k/gen-event initial-chamber))]
       (doseq [[n step] (map vector (iterate inc 0) simulation)]
         (println "Iteration" n "=> time:" (:time step) ", solution:" (:mixture step))))
@@ -83,12 +83,12 @@ As the initial solution just comprises 6 agents, there's no problem printing the
 But as solutions get larger, you probably wouldn't like to print them for each step to see
 how the simulation is going.
 Instead, what you want is to track the counts of some complexes.
-That's what the last argument to `make-chamber` is for!
+That's what the third argument to `make-chamber` is for!
 For example, in `initial-chamber` we're tracking the complexes S(x) and P(x),
 that is, the substrate and the product of that Michaelian enzymatic reaction.
 If you want to get a map for their counts, just call `get-obs-counts`:
 
-    (let [initial-chamber (k/make-chamber [r1 r1-op r2] e1 1 [obs1 obs2])
+    (let [initial-chamber (k/make-chamber [r1 r1-op r2] e1 [obs1 obs2] [])
           simulation (take 10 (iterate k/gen-event initial-chamber))]
       (k/get-obs-expr-counts simulation))
 
@@ -97,7 +97,7 @@ In fact, the function `plot-obs-exprs` in `kappa.graphics` will make this plot f
 To call it, you must pass it the simulation (a sequence of chambers) and optionally a title:
 
     (require '[kappa.graphics :as g])
-    (let [initial-chamber (k/make-chamber [r1 r1-op r2] e1 1 [obs1 obs2])
+    (let [initial-chamber (k/make-chamber [r1 r1-op r2] e1 [obs1 obs2] [])
           simulation (take 10 (iterate k/gen-event initial-chamber))]
       (g/view (g/get-obs-expr-counts simulation :title "Michaelian enzyme")))
 

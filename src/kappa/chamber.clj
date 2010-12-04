@@ -1,4 +1,4 @@
-(ns ^{:doc "Chambers are the places where reactions occur."
+(ns ^{:doc "Chambers are conceptual compartments where reactions take place."
       :author "Ricardo Honorato-Zimmer"}
   kappa.chamber
   (:require [kappa.maps :as maps]
@@ -9,17 +9,25 @@
             [clojure.contrib.generic.math-functions :as math]))
 
 
-(defrecord DeterministicChamber [rules mixture time event-cnt clash-cnt volume stochastic-cs
-                                 activity-map matching-map lift-map ram rim obs-exprs obs-rules])
+(defrecord DeterministicRateChamber [rules mixture time event-cnt clash-cnt volume stochastic-cs
+                                     activity-map matching-map lift-map ram rim obs-exprs obs-rules])
 
-(defrecord StochasticChamber [rules mixture time event-cnt clash-cnt
-                              activity-map matching-map lift-map ram rim obs-exprs obs-rules])
+(defrecord StochasticRateChamber [rules mixture time event-cnt clash-cnt
+                                  activity-map matching-map lift-map ram rim obs-exprs obs-rules])
 
 ;;; Stochastic constants
-(defn- determ2stoch [volume rule]
+(defn k2c
+  "Computes the stochastic rate constant for a rule, assuming its rate is deterministic
+  and it is expressed in [mol^(n-1) * (dm^-3)^(n-1) * s^-1], where n is the number of complexes
+  in the left-hand-side of the rule (i.e., the reaction's order). The volume of the chamber
+  must also be is expressed in dm^3 (or the same space units in rule's rate).
+
+  Please note that the use of deterministic-rate chambers is experimental and has not been
+  tested thoroughly."
+  [volume rule]
   (let [N-avogadro 6.022E23
         rate (:rate rule)
-        num-complexes (-> rule :lhs meta :complexes count) ;; reaction's order
+        num-complexes (-> rule :lhs meta :complexes count)
         aut (-> rule :lhs meta :automorphisms)]
     
     (cond
@@ -30,10 +38,11 @@
 
 (defn- update-stochastic-cs [chamber]
   (assoc chamber :stochastic-cs (zipmap (:rules chamber)
-                                        (map (partial determ2stoch (:volume chamber))
-                                             (:rules chamber)))))
+                                        (map (partial k2c (:volume chamber)) (:rules chamber)))))
 
-(defn update-volume-and-cs [chamber volume]
+(defn update-volume-and-cs
+  ""
+  [chamber volume]
   (-> chamber
     (assoc :volume volume)
     (update-stochastic-cs)))
@@ -47,7 +56,7 @@
   {:arglists '([chamber] [chamber rules])}
   (fn [chamber & _] (class chamber)))
 
-(defmethod update-activities DeterministicChamber
+(defmethod update-activities DeterministicRateChamber
   ([chamber]
      (let [mm (:matching-map chamber)
            cs (:stochastic-cs chamber)]
@@ -63,7 +72,7 @@
                                                    (-> r :lhs meta :automorphisms))))
                            % rules)))))
 
-(defmethod update-activities StochasticChamber
+(defmethod update-activities StochasticRateChamber
   ([chamber]
      (let [mm (:matching-map chamber)]
        (assoc chamber :activity-map
@@ -78,29 +87,35 @@
                            % rules)))))
 
 ;;; Constructors
-(defn make-deterministic-chamber
-  ([rules mixture volume obs-exprs]
-     (make-deterministic-chamber rules mixture volume obs-exprs []))
-  ([rules mixture volume obs-exprs obs-rules]
-     (let [[mm lf] (maps/matching-and-lift-map rules mixture)]
-       (-> (DeterministicChamber. rules mixture 0 0 0 volume
-                                  [] [] ; cs and activities are computed later
+(defn make-chamber
+  "Chambers are conceptual compartments where reactions take place.
+  There are two types of chamber: one considers rule rates as deterministic
+  and the other as stochastic. The former is selected by :rate-type :deterministic
+  and the latter by :rate-type :stochastic.
+
+  Deterministic-rate chambers take the rule's rate as a deterministic one and transform it
+  to its stochastic counterpart using the logic described in kappa.chamber/k2c's source code.
+
+  Please note that the use of deterministic-rate chambers is experimental and has not been
+  tested thoroughly."
+  [rules mixture obs-exprs obs-rules & {:keys [rate-type volume] :or {rate-type :stochastic}}]
+  (let [[mm lf] (maps/matching-and-lift-map rules mixture)]
+    (case rate-type
+      :deterministic
+      (-> (DeterministicRateChamber. rules mixture 0 0 0 volume
+                                     [] [] ; cs and activities are computed later
+                                     mm lf (maps/activation-map rules) (maps/inhibition-map rules)
+                                     (maps/obs-map obs-exprs mixture) ; observed expressions
+                                     (zipmap obs-rules (repeat {}))) ; observed rules
+        (update-stochastic-cs)
+        (update-activities))
+      
+      :stochastic
+      (-> (StochasticRateChamber. rules mixture 0 0 0 [] ; activities are computed later
                                   mm lf (maps/activation-map rules) (maps/inhibition-map rules)
                                   (maps/obs-map obs-exprs mixture) ; observed expressions
                                   (zipmap obs-rules (repeat {}))) ; observed rules
-         (update-stochastic-cs)
-         (update-activities)))))
-
-(defn make-stochastic-chamber
-  ([rules mixture obs-exprs]
-     (make-stochastic-chamber rules mixture obs-exprs []))
-  ([rules mixture obs-exprs obs-rules]
-     (let [[mm lf] (maps/matching-and-lift-map rules mixture)]
-       (-> (StochasticChamber. rules mixture 0 0 0 [] ; activities are computed later
-                               mm lf (maps/activation-map rules) (maps/inhibition-map rules)
-                               (maps/obs-map obs-exprs mixture) ; observed expressions
-                               (zipmap obs-rules (repeat {}))) ; observed rules
-         (update-activities)))))
+        (update-activities)))))
 
 ;;; Events
 (defn- time-advance [activities]
@@ -110,7 +125,7 @@
 (defn- select-rule [activities]
   (misc/choice activities))
 
-(defn select-matching-per-complex [mm]
+(defn- select-matching-per-complex [mm]
   (apply merge (for [[c m] mm]
                  {c (rand-nth (seq m))})))
 
@@ -252,7 +267,7 @@
   "Generates a new event from chamber. You can additionally provide any
   function that takes two args, the chamber and the executed rule, and returns a
   new chamber. These callback functions are called at the end of the iteration and
-  can update chamber's properties (e.g. volume) or communicate with the organizer."
+  can update chamber's properties."
   [chamber & callbacks]
   (when (or (> (:clash-cnt chamber) *max-clashes*)
             (every? zero? (vals (:activity-map chamber))))

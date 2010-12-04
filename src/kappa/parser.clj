@@ -209,7 +209,7 @@
           rate (h/prefix (circumfix-ws (h/lit \@)) <number>)
           second-rate (h/opt (h/prefix (circumfix-ws (h/lit \,)) <number>))]
     (if (= arrow ::unidirectional-rule)
-      [(lang/make-rule name lhs rhs rate)]
+      (lang/make-rule name lhs rhs rate)
       [(lang/make-rule name lhs rhs rate)
        (lang/make-rule (str name "-op") rhs lhs second-rate)])))
 
@@ -281,7 +281,7 @@
                     `(let [r# (parse-rule ~r-str)]
                        (def ~(v 0) (nth r# 0))
                        (def ~(v 1) (nth r# 1)))
-                    `(def ~v (first (parse-rule ~r-str)))))
+                    `(def ~v (parse-rule ~r-str))))
                 vars rules))))
 
 (defmacro let-rules [bindings & body]
@@ -291,7 +291,7 @@
                             `[r# (parse-rule ~r-str)
                               ~(v 0) (nth r# 0)
                               ~(v 1) (nth r# 1)]
-                            `[~v (first (parse-rule ~r-str))]))
+                            `[~v (parse-rule ~r-str)]))
                         locals rules))
        ~@body)))
 
