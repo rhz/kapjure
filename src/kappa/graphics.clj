@@ -1,8 +1,9 @@
-(ns ^{:doc ""
-      :author "Ricardo Honorato-Zimmer"}
-  kappa.graphics
+(ns kappa.graphics
+  {:doc "Plotting functions for Kappa simulations."
+   :author "Ricardo Honorato-Zimmer"}
   (:require [kappa.chamber :as chamber]
             [clojure.contrib.math :as m]
+            [clojure.data.finger-tree :as ft]
             [incanter.core :as incanter]
             [incanter.charts :as charts]
             [incanter.stats :as stats]))
@@ -34,26 +35,44 @@
     (charts/set-x-range plot 1E-30 (* 1.01 (last time-steps)))
     plot))
 
+(defn- nth-multiple [n coll]
+  (map first (partition-all n coll)))
+
 (defn plot-obs-exprs
   "Plot the observed expressions of a seq of chambers."
-  [sim & {:keys [title] :or {title ""}}]
-  (plot-result (map :time sim) (chamber/get-obs-expr-counts sim) :title title))
+  [sim & {:keys [title rpd] :or {title "" rpd 1}}]
+  (plot-result {:time (nth-multiple rpd (map :time sim))
+                :obs-expr-counts (into {} (for [[obs counts] (chamber/get-obs-expr-counts sim)]
+                                            [obs (nth-multiple rpd counts)]))}
+               :title title))
 
-(defn- interpolate [t tcps] ; tcps = time-and-counts-pairs
-  (if-let [[[t1 v1] [t2 v2]] (first (filter (fn [[[t1 v1] [t2 v2]]]
-                                              ;; TODO performance problem here!
-                                              (and (>= t t1) (<= t t2))) tcps))]
-    (let [slope (/ (- v2 v1) (- t2 t1))]
-      (+ v1 (* slope (- t t1))))
-    (second (second (last tcps))))) ; = v2
+(let [empty-interval-tree (ft/finger-tree (ft/meter first 0 max))]
+  (defn interval-tree [time-steps counts]
+    (let [elems (map vector time-steps counts)]
+      (into empty-interval-tree elems))))
+
+(defn find-interval [it t]
+  (if (empty? it)
+    nil
+    (let [[l upper-bound _] (ft/split-tree it #(>= % t))
+          lower-bound (peek l)]
+      [lower-bound upper-bound])))
+
+(defn- interpolate [it t] ;; it = interval tree
+  (if-let [[[t1 v1] [t2 v2]] (find-interval it t)]
+    (cond
+      (nil? t1) v2 ;; t <= first t1
+      (> t t2) v2  ;; t >= last t2
+      :else (let [slope (/ (- v2 v1) (- t2 t1))]
+              (+ v1 (* slope (- t t1)))))
+    0)) ;; interval tree is empty
 
 (defn- interpolate-results [sim-results time-steps]
-  (let [time-and-counts-pairs (for [{:keys [time obs-expr-counts]} sim-results]
-                                (into {} (for [[obs-expr counts] obs-expr-counts]
-                                           [obs-expr (partition 2 1 (map vector time counts))])))]
-    (for [sim time-and-counts-pairs]
-      (into {} (for [[obs-expr tcps] sim]
-                 [obs-expr (map #(interpolate % tcps) time-steps)])))))
+  (for [sim (for [{:keys [time obs-expr-counts]} sim-results]
+              (into {} (for [[obs-expr counts] obs-expr-counts]
+                         [obs-expr (interval-tree time counts)])))]
+    (into {} (for [[obs-expr it] sim]
+               [obs-expr (map (partial interpolate it) time-steps)]))))
 
 (defn- apply-to-steps [f counts time-steps]
   (let [obs-exprs (set (for [sim counts
@@ -72,15 +91,17 @@
   in sim-results for all time steps."
   [sim-results & {:keys [rpd] :or {rpd 1}}]
   (let [time-steps (distinct
-                    (apply concat (map (comp #(map first (partition rpd %)) :time) sim-results)))]
+                    (apply concat (map (comp (partial nth-multiple rpd) :time) sim-results)))]
     (get-results sim-results time-steps)))
+
+(defn- mean [& xs]
+  (/ (apply + xs) (count xs)))
 
 (defn get-avg-result
   "Interpolate and then average the counts for the observed expressions
   in sim-results for the average of each time step."
   [sim-results & {:keys [rpd] :or {rpd 1}}]
-  (let [time-steps (apply map (comp stats/mean vector)
-                          (map (comp #(map first (partition rpd %)) :time) sim-results))]
+  (let [time-steps (apply map mean (map (comp (partial nth-multiple rpd) :time) sim-results))]
     (get-results sim-results time-steps)))
 
 (defn get-most-repr-result
@@ -103,7 +124,7 @@
 (defn mean-plot
   "Plot the average behaviour of the simulations in sim-results."
   [sim-results & {:keys [error-bars] :or {error-bars :sd}}]
-  (let [time-steps (apply map (comp stats/mean vector) (map :time sim-results))
+  (let [time-steps (apply map mean (map :time sim-results))
         counts (interpolate-results sim-results time-steps)
         counts-mean (apply-to-steps stats/mean counts time-steps)
         counts-error (case error-bars
