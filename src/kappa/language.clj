@@ -1,6 +1,6 @@
-(ns ^{:doc ""
-      :author "Ricardo Honorato-Zimmer"}
-  kappa.language
+(ns kappa.language
+  {:doc "Core data-structures and functions for the Kappa language."
+   :author "Ricardo Honorato-Zimmer"}
   (:require [kappa.misc :as misc]
             [clojure.contrib.combinatorics :as comb]
             [clojure.set :as set]))
@@ -141,6 +141,31 @@
             pa-id->ea-id
             (recur (rest left))))))))
 
+(defn complex-dom2cod
+  "Returns a map from pairs [agent site] in p-complexes to pairs [agent site]
+  in e-complexes that matches. e- and p-complexes must be seqs of expressions,
+  each expression representing just one complex.
+
+  The keys of the returning map are the domain and the values the codomain."
+  [expr p-complexes e-complexes]
+  (apply merge (for [p-complex p-complexes
+                     matched-complex (keep (partial match p-complex) e-complexes)
+                     [pa-id pa :as p-oae] p-complex
+                     pa-site (-> pa :states keys)
+                     :let [ea-id (matched-complex pa-id),  e-oae (find expr ea-id)]]
+                 {[p-oae pa-site] [e-oae pa-site]})))
+
+(defn domain2codomain
+  "Returns a map from pairs [agent site] in p to pairs [agent site] in e that matches.
+  This function requires that the given expressions has accurate information about
+  their complexes in the metadata.
+
+  The keys of the returning map are the domain and the values the codomain."
+  [p e]
+  (let [e-complexes (map (partial subexpr e) (-> e meta :complexes))
+        p-complexes (map (partial subexpr p) (-> p meta :complexes))]
+    (complex-dom2cod e p-complexes e-complexes)))
+
 
 ;;; Rules
 (defrecord Rule [name lhs rhs rate action])
@@ -166,7 +191,8 @@
   sites s1 and s2, respectively."
   [c1 [a1-id a1] s1 c2 [a2-id a2] s2]
   (fn [chamber matching]
-    (let [ma1 ((matching c1) a1-id), ma2 ((matching c2) a2-id)]
+    (let [ma1 ((matching c1) a1-id)
+          ma2 ((matching c2) a2-id)]
       (-> chamber
           (assoc-in [:mixture ma1 :bindings s1] ma2)
           (assoc-in [:mixture ma2 :bindings s2] ma1)
@@ -177,7 +203,8 @@
   "Returns a function that unbinds agents a1 and a2."
   ([c1 [a1-id a1] s1 c2 [a2-id a2] s2]
      (fn [chamber matching]
-       (let [ma1 ((matching c1) a1-id), ma2 ((matching c2) a2-id)]
+       (let [ma1 ((matching c1) a1-id)
+             ma2 ((matching c2) a2-id)]
          (-> chamber
              (assoc-in [:mixture ma1 :bindings s1] :free)
              (assoc-in [:mixture ma2 :bindings s2] :free)
@@ -209,16 +236,17 @@
   [c [a-id a]]
   (fn [chamber matching]
     (let [ma ((matching c) a-id)
-          nbs (filter number? (-> ((:mixture chamber) ma) :bindings vals))]
-      (reduce (fn [chamber nb]
-                (let [site (first (filter (comp #{ma} val) (:bindings nb)))]
+          mixture (:mixture chamber)
+          nb-ids (filter number? (vals (:bindings (mixture ma))))]
+      (reduce (fn [chamber nb-id]
+                (let [nb-site (first (filter (comp #{ma} val) (:bindings (mixture nb-id))))]
                   (-> chamber
-                      (assoc-in [:mixture nb :bindings site] :free)
-                      (vary-meta (fn [m] (update-in m [:modified-sites] conj [nb site]))))))
+                    (assoc-in [:mixture nb-id :bindings nb-site] :free)
+                    (vary-meta (fn [m] (update-in m [:modified-sites] conj [nb-id nb-site]))))))
               (-> chamber
-                  (update-in [:mixture] dissoc ma)
-                  (vary-meta (fn [m] (update-in m [:removed-agents] conj ma))))
-              nbs))))
+                (update-in [:mixture] dissoc ma)
+                (vary-meta (fn [m] (update-in m [:removed-agents] conj ma))))
+              nb-ids))))
 
 (defn pair-exprs
   "Returns a seq of three things:
@@ -314,8 +342,8 @@
         ;; get every modified site
         {:keys [bound unbound modified]} modified-sites
 
-        [bss-lhs uss-lhs] (map #(for [[a2 a1 s1] %] [a1 s1]) [bound unbound])
-        [bss-rhs uss-rhs] (map #(for [[[a1-id a1] s1] %]
+        [bss-lhs uss-lhs] (map #(for [[_ a1 s1] %] [a1 s1]) [bound unbound])
+        [bss-rhs uss-rhs] (map #(for [[[a1-id _] s1] %]
                                   [(get-rhs-agent a1-id lhs-rhs) s1])
                                [bss-lhs uss-lhs])
         
