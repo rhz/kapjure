@@ -1,6 +1,6 @@
-(ns ^{:doc ""
-      :author "Ricardo Honorato-Zimmer"}
-  kappa.io
+(ns kappa.io
+  {:doc "Functions to read and write Kappa-related data."
+   :author "Ricardo Honorato-Zimmer"}
   (:require [clojure.contrib.duck-streams :as duck-streams]))
 
 (defn map2dot [output ram rim]

@@ -1,4 +1,6 @@
 (ns kappa.parser
+  {:doc "Functions and macros to parse Kappa agents, expressions, rules and systems."
+   :author "Ricardo Honorato-Zimmer"}
   (:require [edu.arizona.fnparse.hound :as h]
             [clojure.contrib [except :as except]]
             [kappa.language :as lang]

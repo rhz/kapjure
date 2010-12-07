@@ -1,6 +1,6 @@
-(ns ^{:doc "Tests for Kapjure"
-      :author "Ricardo Honorato-Zimmer"}
-  kappa.all-tests
+(ns kappa.all-tests
+  {:doc "Tests for Kapjure"
+   :author "Ricardo Honorato-Zimmer"}
   (:use [clojure.contrib.test-is :only [is deftest]])
   (:require [kappa.language :as lang]
             [kappa.maps :as maps]
@@ -164,14 +164,14 @@
 
 ;;;; chamber.clj
 (deftest simulation-isomerization
-  (p/let-rules [r1 "a(x) -> b(x) @ 1"]
-    (p/let-exprs [e1 "1000 * a(x)"]
+  (p/let-rules [r1 "A(x) -> B(x) @ 1"]
+    (p/let-exprs [e1 "1000 * A(x)"]
       (let [initial-chamber (chamber/make-chamber [r1] e1 [] [])
             sim (take 101 (iterate chamber/gen-event initial-chamber))
-            a-agents-left (filter (fn [[_ {name :name}]]
-                                    (= name "a"))
+            A-agents-left (filter (fn [[_ {name :name}]]
+                                    (= name "A"))
                                   (:mixture (last sim)))]
-        (is (= (count a-agents-left) 900))))))
+        (is (= (count A-agents-left) 900))))))
 
 ;;;; README.md
 (deftest tutorial

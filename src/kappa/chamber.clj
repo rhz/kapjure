@@ -1,10 +1,10 @@
-(ns ^{:doc "Chambers are conceptual compartments where reactions take place."
-      :author "Ricardo Honorato-Zimmer"}
-  kappa.chamber
+(ns kappa.chamber
+  {:doc "Chambers are conceptual compartments where reactions take place."
+   :author "Ricardo Honorato-Zimmer"}
   (:require [kappa.maps :as maps]
             [kappa.misc :as misc]
-            [clojure.set :as set]
             [kappa.language :as lang]
+            [clojure.set :as set]
             [clojure.contrib.math :as m]
             [clojure.contrib.generic.math-functions :as math]))
 
@@ -103,7 +103,7 @@
     (case rate-type
       :deterministic
       (-> (DeterministicRateChamber. rules mixture 0 0 0 volume
-                                     [] [] ; cs and activities are computed later
+                                     [] [] ; stochastic cs and activities are computed later
                                      mm lf (maps/activation-map rules) (maps/inhibition-map rules)
                                      (maps/obs-map obs-exprs mixture) ; observed expressions
                                      (zipmap obs-rules (repeat {}))) ; observed rules
@@ -127,7 +127,7 @@
 
 (defn- select-matching-per-complex [mm]
   (apply merge (for [[c m] mm]
-                 {c (rand-nth (seq m))})))
+                 {c (rand-nth m)})))
 
 (defn- clash? [m]
   (let [agent-ids (for [[c matchings] m
@@ -171,6 +171,19 @@
         (update-in [:lift-map]
                    #(reduce (fn [lm a] (dissoc lm a)) % ras)))))
 
+(defn- get-embeddings [mixture a-ids & rules]
+  (for [r rules
+        cr (-> r :lhs meta :complexes)
+        :let [cr-expr (lang/subexpr (:lhs r) cr)
+              cms (set (map #(lang/complex mixture (find mixture %)) a-ids))
+              cm-exprs (map #(lang/subexpr mixture %) cms)]
+        cm-expr cm-exprs
+        :let [dom2cod (map (fn [[[[id1 _] s1] [[id2 _] s2]]]
+                             [[id1 s1] [id2 s2]])
+                           (lang/complex-dom2cod mixture [cr-expr] [cm-expr]))]
+        :when (not (empty? dom2cod))]
+    [r cr (into {} dom2cod)]))
+
 (defn- positive-update [chamber]
   (let [ram (:ram chamber)
         mixture (:mixture chamber)
@@ -178,27 +191,15 @@
         activated-rules ((:ram chamber) (:executed-rule m))
         aas (:added-agents m)
         mss (:modified-sites m)
-        cm-exprs (set (for [a-id (concat aas (map first mss))
-                            :let [cm (lang/complex mixture (find mixture a-id))]]
-                        (with-meta (lang/subexpr mixture cm)
-                          {:complexes [cm]})))
         ;; for every c in C(r') try to find a unique embedding
-        ;; extension phi_c in [c, S'] of the injection c -> {a}
-        embs (remove (comp empty? misc/third)
-                     (for [r activated-rules
-                           cr (-> r :lhs meta :complexes)
-                           :let [cr-expr (with-meta (lang/subexpr (:lhs r) cr)
-                                           {:complexes [cr]})]
-                           cm-expr cm-exprs]
-                       [r cr (into {} (map (fn [[[[id1 a1] s1] [[id2 a2] s2]]]
-                                             [[id1 s1] [id2 s2]])
-                                           (maps/codomain cr-expr cm-expr)))]))
-        cods (map (fn [[r cr cr->cm]]
-                    [r cr (vals cr->cm)]) embs)
-        emb-agent-ids (map (fn [[r cr cr->cm]]
-                             [r cr (into {} (map (fn [[[id1 s1] [id2 s2]]]
-                                                   [id1 id2]) cr->cm))]) embs)
-        cod-mates (for [[r cr cod] cods
+        ;; extension phi_c in [c S'] of the injection c -> {a}
+        embs (apply get-embeddings mixture (concat aas (map first mss)) activated-rules)
+        ;; process embs
+        emb-agent-ids (for [[r cr cr2cm] embs]
+                        [r cr (into {} (for [[[id1 _] [id2 _]] cr2cm]
+                                         [id1 id2]))])
+        cod-sites (for [[r cr cr2cm] embs
+                        :let [cod (vals cr2cm)]
                         [a-id s] cod]
                     [a-id s r cr cod])]
     (-> chamber
@@ -211,7 +212,7 @@
         (update-in [:lift-map]
                    #(reduce (fn update-lm [lm [a s r c cod]]
                               (update-in lm [a s] conj {:rule r, :complex c, :codomain cod}))
-                            % cod-mates)))))
+                            % cod-sites)))))
 
 ;; TODO obs-update can be optimized if the activation and inhibition maps are
 ;;      extended so rules can map to obs-exprs as well.
@@ -243,13 +244,13 @@
     (-> obs-rules-updated
         ;; positive update
         (update-in [:obs-exprs]
-                   #(reduce (fn [om [obs emb]]
+                   #(reduce (fn positive-update [om [obs emb]]
                               (-> (update-in om [obs] conj emb)
                                   (vary-meta into (for [a emb] [a [obs emb]]))))
                             % embs))
         ;; negative update
         (update-in [:obs-exprs]
-                   #(reduce (fn [om [obs rc]]
+                   #(reduce (fn negative-update [om [obs rc]]
                               (let [agent-complexes (meta om)]
                                 (reduce (fn [om ra]
                                           (let [[obs-in-meta not-emb] (agent-complexes ra)]
@@ -325,12 +326,11 @@
 ;;; Using Clojure futures to perform several simulations simultaneously
 
 (defn psimulate [chamber num-steps num-simulations & callbacks]
-  (let [sims (map deref
-                  (doall (repeatedly num-simulations
-                                     #(future (doall (take num-steps
-                                                           (iterate gen-event chamber)))))))]
-    (for [sim sims]
-      {:time (map :time sim) :obs-expr-counts (get-obs-expr-counts sim)})))
+  (for [sim (map deref
+                 (doall (repeatedly num-simulations
+                                    #(future (doall (take num-steps
+                                                          (iterate gen-event chamber)))))))]
+    {:time (map :time sim) :obs-expr-counts (get-obs-expr-counts sim)}))
 
 
 ;; TODO reachable-complexes and reachable-reactions

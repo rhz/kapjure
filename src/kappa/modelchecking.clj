@@ -1,4 +1,6 @@
 (ns kappa.modelchecking
+  {:doc "Functions to convert Kappa models into PRISM and NuSMV models."
+   :author "Ricardo Honorato-Zimmer"
   (:require [kappa.language :as lang]))
 
 ;; We'll use the rule struct for rule instances

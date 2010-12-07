@@ -1,6 +1,6 @@
-(ns ^{:doc "Useful functions that doesn't fit elsewhere."
-      :author "Ricardo Honorato-Zimmer"}
-  kappa.misc)
+(ns kappa.misc
+  {:doc "Useful functions that doesn't fit elsewhere."
+   :author "Ricardo Honorato-Zimmer"})
 
 (defn indexed [s] ; this isn't used anywhere: candidate to be deleted
   (map vector (iterate inc 0) s))
@@ -9,8 +9,8 @@
 
 (def xor (comp not =))
 
-(def counter (let [cnt (atom 0)]
-               #(swap! cnt inc)))
+(let [cnt (atom 0)]
+  (defn counter [] (swap! cnt inc)))
 
 (defn factorial [n]
   (apply * (take (dec n) (iterate inc 2))))
