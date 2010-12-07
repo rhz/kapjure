@@ -85,6 +85,10 @@
     (is (= (maps/inhibition-map [r1 r2])
            {r1 [], r2 []}))))
 
+;; workaround until finger-trees implement equality
+(defn- cmpstr [a b]
+  (= (println-str a) (println-str b)))
+
 ;;;; language.clj and chamber.clj
 (deftest destroy-agent
   (p/let-rules [r1 "a(x), b(x) -> b(x) @ 1"]
@@ -94,7 +98,9 @@
       ;;(is (= removed-agents [(-> r1 :lhs first)]))
       (is (= created-agents '()))
       (is (= (count eas) 1))
-      (p/let-exprs [e1 "a(x), b(x)", e2 "b(x)"]
+      (p/let-exprs [e1 "a(x), b(x)", e2 "b(x)"
+                    e3 "10 * a(x), 1 * b(x)"]
+        (println e3)
         (let [[mm lf] (maps/matching-and-lift-map [r1] e1), lhs (:lhs r1)]
               ;; a-e1, a-r1, b-e1 and b-r1 are ids
               ;;a-e1 (-> e1 first key), a-r1 (-> lhs first key),
@@ -105,15 +111,17 @@
           (let [chamber1 (chamber/make-chamber [r1] e1 [] [])
                 chamber1-mm (:matching-map chamber1)
                 chamber2 (-> (chamber/gen-event chamber1)
-                             (update-in [:mixture] lang/with-complexes))]
-            (is (= mm chamber1-mm))
+                           (update-in [:mixture] lang/with-complexes))
+                chamber3 (chamber/make-chamber [r1] e3 [] [])]
+            (is (cmpstr mm chamber1-mm))
             (is (= (-> chamber2 :mixture vals set) (-> e2 vals set)))
-            (is (= (:matching-map chamber2) (->> chamber2 :mixture
+            (doseq [c (take 10 (iterate chamber/gen-event chamber3))]
+              (is (cmpstr (:matching-map c) (->> c :mixture lang/with-complexes
                                                  (maps/matching-and-lift-map [r1])
                                                  first)))
-            (is (= (:lift-map chamber2) (->> chamber2 :mixture
-                                             (maps/matching-and-lift-map [r1])
-                                             second)))))))))
+              (is (= (:lift-map c) (->> c :mixture lang/with-complexes
+                                        (maps/matching-and-lift-map [r1])
+                                        second))))))))))
 
 (deftest create-agent
   (p/let-rules [r1 "a(x) -> a(x), b(x) @ 1"]
@@ -122,45 +130,55 @@
             chamber2 (-> (chamber/gen-event chamber1)
                          (update-in [:mixture] lang/with-complexes))]
         (is (= (-> chamber2 :mixture vals set) (-> e2 vals set)))
-        (is (= (:matching-map chamber2) (->> chamber2 :mixture
+        (doseq [c (take 10 (iterate chamber/gen-event chamber1))]
+          (is (cmpstr (:matching-map c) (->> c :mixture lang/with-complexes
                                              (maps/matching-and-lift-map [r1])
                                              first)))
-        (is (= (:lift-map chamber2) (->> chamber2 :mixture
-                                         (maps/matching-and-lift-map [r1])
-                                         second)))))))
+          (is (= (:lift-map c) (->> c :mixture lang/with-complexes
+                                    (maps/matching-and-lift-map [r1])
+                                    second))))))))
 
 (deftest modify-state
   (p/let-rules [r1 "a(x~u!1), b(x!1) -> a(x~p!1), b(x!1) @ 1"]
-    (p/let-exprs [e1 "a(x~u!1), b(x!1)", e2 "a(x~p!1), b(x!1)"]
+    (p/let-exprs [e1 "a(x~u!1), b(x!1)", e2 "a(x~p!1), b(x!1)"
+                  e3 "10 * (a(x~u!1), b(x!1))"]
       (let [chamber1 (chamber/make-chamber [r1] e1 [] [])
             chamber2 (-> (chamber/gen-event chamber1)
-                         (update-in [:mixture] lang/with-complexes))]
+                       (update-in [:mixture] lang/with-complexes))
+            chamber3 (chamber/make-chamber [r1] e3 [] [])]
         (is (lang/match (:mixture chamber2) e2))
-        (is (= (:matching-map chamber2) (->> chamber2 :mixture
+        (doseq [c (take 10 (iterate chamber/gen-event chamber3))]
+          (is (cmpstr (:matching-map c) (->> c :mixture lang/with-complexes
                                              (maps/matching-and-lift-map [r1])
-                                             first)))))))
+                                             first))))))))
 
 (deftest bind-agents
   (p/let-rules [r1 "a(x~u), b(x) -> a(x~u!1), b(x!1) @ 1"]
-    (p/let-exprs [e1 "a(x~u), b(x)", e2 "a(x~u!1), b(x!1)"]
+    (p/let-exprs [e1 "a(x~u), b(x)", e2 "a(x~u!1), b(x!1)"
+                  e3 "10 * a(x~u), 10 * b(x)"]
       (let [chamber1 (chamber/make-chamber [r1] e1 [] [])
             chamber2 (-> (chamber/gen-event chamber1)
-                         (update-in [:mixture] lang/with-complexes))]
+                       (update-in [:mixture] lang/with-complexes))
+            chamber3 (chamber/make-chamber [r1] e3 [] [])]
         (is (lang/match (:mixture chamber2) e2))
-        (is (= (:matching-map chamber2) (->> chamber2 :mixture
+        (doseq [c (take 10 (iterate chamber/gen-event chamber3))]
+          (is (cmpstr (:matching-map c) (->> c :mixture lang/with-complexes
                                              (maps/matching-and-lift-map [r1])
-                                             first)))))))
+                                             first))))))))
 
 (deftest unbind-agents
   (p/let-rules [r1 "a(x~p!1), b(x!1) -> a(x~p), b(x) @ 1"]
-    (p/let-exprs [e1 "a(x~p!1), b(x!1)", e2 "a(x~p), b(x)"]
+    (p/let-exprs [e1 "a(x~p!1), b(x!1)", e2 "a(x~p), b(x)"
+                  e3 "10 * (a(x~p!1), b(x!1))"]
       (let [chamber1 (chamber/make-chamber [r1] e1 [] [])
             chamber2 (-> (chamber/gen-event chamber1)
-                         (update-in [:mixture] lang/with-complexes))]
+                       (update-in [:mixture] lang/with-complexes))
+            chamber3 (chamber/make-chamber [r1] e3 [] [])]
         (is (lang/match (:mixture chamber2) e2))
-        (is (= (:matching-map chamber2) (->> chamber2 :mixture
+        (doseq [c (take 10 (iterate chamber/gen-event chamber3))]
+          (is (cmpstr (:matching-map c) (->> c :mixture lang/with-complexes
                                              (maps/matching-and-lift-map [r1])
-                                             first)))))))
+                                             first))))))))
 
 ;;;; chamber.clj
 (deftest simulation-isomerization

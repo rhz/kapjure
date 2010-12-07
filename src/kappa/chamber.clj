@@ -194,7 +194,6 @@
         ;; for every c in C(r') try to find a unique embedding
         ;; extension phi_c in [c S'] of the injection c -> {a}
         embs (apply get-embeddings mixture (concat aas (map first mss)) activated-rules)
-        ;; process embs
         emb-agent-ids (for [[r cr cr2cm] embs]
                         [r cr (into {} (for [[[id1 _] [id2 _]] cr2cm]
                                          [id1 id2]))])

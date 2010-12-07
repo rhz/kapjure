@@ -89,8 +89,9 @@
 
 ;;; Match
 (defn- match-dispatch [obj1 obj2]
-  (or (and (agent? obj1) (agent? obj2) :agent)
-      (and (expression? obj1) (expression? obj2) :expression)))
+  (or (and (agent? obj1) (agent? obj2) ::agent)
+      (and (expression? obj1) (expression? obj2) ::expression)
+      (print-str (class obj1) "and" (class obj2))))
 
 (defmulti match
   "Check if the given pattern (first argument) matches
@@ -98,7 +99,7 @@
   {:arglists '([p a] [p c])}
   match-dispatch)
 
-(defmethod match :agent [p a] ; p stands for pattern, a for agent
+(defmethod match ::agent [p a] ; p stands for pattern, a for agent
   (and (= (:name a) (:name p)) ; the names are the same
        ;; every site mentioned in p is present in a
        (every? #((:states a) %) (keys (:states p)))
@@ -113,7 +114,7 @@
                     (not (= ((:bindings a) %) :free)))
                  (keys p-bindings)))))
 
-(defmethod match :expression [p e] ; p stands for pattern, e for expression
+(defmethod match ::expression [p e] ; p stands for pattern, e for expression
   ;; stores all matchings for every agent in p (lazyly :)
   (let [matchings (map (fn [p] (filter #(match p (val %)) e)) (vals p))
         match-comb (apply comb/cartesian-product matchings) ; matching combinations
@@ -177,63 +178,59 @@
 (defn modify-state
   "Returns a function that modifies the state of site s in agent
   ((matching c) a) to new-state."
-  [c [a-id a] s new-state] ; c is a seq of lhs agent ids. a is a lhs agent id.
+  [c [a-id _] s new-state] ; c is a seq of lhs agent ids. a is a lhs agent id.
   ;; matching is a map from lhs complex to a map from lhs agents ids to mixture agents ids
   (fn [chamber matching]
     (let [ma-id ((matching c) a-id)]
       (-> chamber
           (assoc-in [:mixture ma-id :states s] new-state)
-          (vary-meta (fn [m] (update-in m [:modified-sites]
-                                        conj [ma-id s])))))))
+          (vary-meta update-in [:modified-sites] conj [ma-id s])))))
 
 (defn bind-agents
   "Returns a function that binds agents a1 and a2 through
   sites s1 and s2, respectively."
-  [c1 [a1-id a1] s1 c2 [a2-id a2] s2]
+  [c1 [a1-id _] s1 c2 [a2-id _] s2]
   (fn [chamber matching]
     (let [ma1 ((matching c1) a1-id)
           ma2 ((matching c2) a2-id)]
       (-> chamber
           (assoc-in [:mixture ma1 :bindings s1] ma2)
           (assoc-in [:mixture ma2 :bindings s2] ma1)
-          (vary-meta (fn [m] (update-in m [:modified-sites]
-                                        into [[ma1 s1] [ma2 s2]])))))))
+          (vary-meta update-in [:modified-sites] into [[ma1 s1] [ma2 s2]])))))
 
 (defn unbind-agents
   "Returns a function that unbinds agents a1 and a2."
-  ([c1 [a1-id a1] s1 c2 [a2-id a2] s2]
+  ([c1 [a1-id _] s1 c2 [a2-id _] s2]
      (fn [chamber matching]
        (let [ma1 ((matching c1) a1-id)
              ma2 ((matching c2) a2-id)]
          (-> chamber
              (assoc-in [:mixture ma1 :bindings s1] :free)
              (assoc-in [:mixture ma2 :bindings s2] :free)
-             (vary-meta (fn [m] (update-in m [:modified-sites]
-                                           into [[ma1 s1] [ma2 s2]])))))))
-  ([c1 [a1-id a1] s1]
+             (vary-meta update-in [:modified-sites] into [[ma1 s1] [ma2 s2]])))))
+  ([c1 [a1-id _] s1]
      (fn [chamber matching]
        (let [ma1 ((matching c1) a1-id)]
          (-> chamber
              (assoc-in [:mixture ma1 :bindings s1] :free)
-             (vary-meta (fn [m] (update-in m [:modified-sites]
-                                           into [[ma1 s1]]))))))))
+             (vary-meta update-in [:modified-sites] into [[ma1 s1]]))))))
 
-(defn create
+(defn create-agent
   "Returns a function that creates an agent a in chamber's mixture.
   Agent a must not be bound."
-  [a]
-  ;; TODO should I allow to create bound agents? what if you want to create a complex?
-  (if (every? #(or (= % :free) (= % :unspecified)) (vals (:bindings a))) ; a can't be bound
+  [agent-spec]
+  ;; TODO should I allow to create bound agents/complexes?
+  (if (every? #(or (= % :free) (= % :unspecified)) (vals (:bindings agent-spec)))
     (fn [chamber _]
       (let [id (misc/counter)]
         (-> chamber
-            (assoc-in [:mixture id] a)
-            (vary-meta (fn [m] (update-in m [:added-agents] conj id))))))
-    (throw (Exception. "Agents created by rules can't be bound."))))
+          (assoc-in [:mixture id] agent-spec)
+          (vary-meta update-in [:added-agents] conj id))))
+    (throw (Exception. "agents created by rules cannot be bound."))))
 
-(defn destroy
+(defn destroy-agent
   "Returns a function that destroys agent a in chamber's mixture."
-  [c [a-id a]]
+  [c [a-id _]]
   (fn [chamber matching]
     (let [ma ((matching c) a-id)
           mixture (:mixture chamber)
@@ -242,10 +239,10 @@
                 (let [nb-site (first (filter (comp #{ma} val) (:bindings (mixture nb-id))))]
                   (-> chamber
                     (assoc-in [:mixture nb-id :bindings nb-site] :free)
-                    (vary-meta (fn [m] (update-in m [:modified-sites] conj [nb-id nb-site]))))))
+                    (vary-meta update-in [:modified-sites] conj [nb-id nb-site]))))
               (-> chamber
                 (update-in [:mixture] dissoc ma)
-                (vary-meta (fn [m] (update-in m [:removed-agents] conj ma))))
+                (vary-meta update-in [:removed-agents] conj ma))
               nb-ids))))
 
 (defn pair-exprs
@@ -356,8 +353,8 @@
                        [created-agents removed-agents])]
     
     {:elementary-actions (concat modify-state-fns bind-agents-fns unbind-agents-fns
-                                 (map create (map val created-agents))
-                                 (map #(destroy (complex lhs %) %) removed-agents))
+                                 (map create-agent (map val created-agents))
+                                 (map #(destroy-agent (complex lhs %) %) removed-agents))
      :modified-sites (concat mss bss-lhs bss-rhs uss-lhs uss-rhs css rss)}))
 
 (defn action [lhs rhs]

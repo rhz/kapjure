@@ -119,7 +119,19 @@
 
 ;;; Matching map and Lift map
 (defn- map-compare [m1 m2]
-  (compare (vec m1) (vec m2)))
+  (let [h1 (hash m1)
+        h2 (hash m2)]
+    (cond
+      (< h1 h2) -1
+      (> h1 h2) 1
+      (and (= h1 h2) (= m1 m2)) 0
+      ;; hash collision
+      :else (let [c1 (count m1)
+                  c2 (count m2)]
+              (cond
+                (< c1 c2) -1
+                (= c1 c2) (compare (vec (sort-by > (vals m1))) (vec (sort-by > (vals m2))))
+                (> c1 c2) 1)))))
 
 (defn matching-and-lift-map
   "Compute the matching map and lift map. For reference, see
