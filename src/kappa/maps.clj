@@ -118,7 +118,10 @@
 
 
 ;;; Matching map and Lift map
-(defn- map-compare [m1 m2]
+(defn map-compare [m1 m2]
+  (compare (vec (sort-by > (vals m1))) (vec (sort-by > (vals m2)))))
+
+(comment
   (let [h1 (hash m1)
         h2 (hash m2)]
     (cond
@@ -158,7 +161,8 @@
                                           [ar-id am-id])))]]
          
          [;; this goes to the matching map
-          {r {cr (apply ft/counted-sorted-set-by map-compare matchings)}}
+          ;;{r {cr (apply ft/counted-sorted-set-by map-compare matchings)}}
+          {r {cr (set matchings)}}
           ;; and this to the lift map
           (for [cod cods
                 [a-id s] cod]

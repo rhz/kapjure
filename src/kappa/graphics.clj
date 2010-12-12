@@ -18,10 +18,16 @@
   [chart filename & options]
   (apply incanter/save chart filename options))
 
+(defn- nth-multiple [n coll]
+  (map first (partition-all n coll)))
+
 (defn plot-result
   "Plot the results of a simulation (as returned by kappa.chamber/psimulate)."
-  [result & {:keys [title] :or {title ""}}]
+  [result & {:keys [title rpd] :or {title "" rpd 1}}]
   (let [{time-steps :time obs-expr-counts :obs-expr-counts} result
+        time-steps (nth-multiple rpd time-steps)
+        obs-expr-counts (into {} (for [[obs counts] obs-expr-counts]
+                                   [obs (nth-multiple rpd counts)]))
         obs-exprs (keys obs-expr-counts)
         plot (charts/xy-plot time-steps (obs-expr-counts (first obs-exprs))
                              :series-label (print-str (val (ffirst obs-exprs)))
@@ -32,19 +38,16 @@
     (doseq [[obs counts] (rest obs-expr-counts)]
       (charts/add-lines plot time-steps counts
                         :series-label (print-str (val (first obs)))))
-    (charts/set-x-range plot 1E-30 (* 1.01 (last time-steps)))
+    (charts/set-x-range plot -1E-30 (* 1.01 (last time-steps)))
     plot))
-
-(defn- nth-multiple [n coll]
-  (map first (partition-all n coll)))
 
 (defn plot-obs-exprs
   "Plot the observed expressions of a seq of chambers."
   [sim & {:keys [title rpd] :or {title "" rpd 1}}]
-  (plot-result {:time (nth-multiple rpd (map :time sim))
-                :obs-expr-counts (into {} (for [[obs counts] (chamber/get-obs-expr-counts sim)]
-                                            [obs (nth-multiple rpd counts)]))}
-               :title title))
+  (plot-result {:time (map :time sim)
+                :obs-expr-counts (chamber/get-obs-expr-counts sim)}
+               :title title
+               :rpd rpd))
 
 (let [empty-interval-tree (ft/finger-tree (ft/meter first 0 max))]
   (defn interval-tree [time-steps counts]

@@ -5,6 +5,13 @@
             [clojure.contrib.combinatorics :as comb]
             [clojure.set :as set]))
 
+;;; TODO an Agent record is an "agent specification".
+;;;      a pair [id agent-spec] is an agent
+;;;      a map {id agent-spec} is a one-agent expression
+;;; Esta nomenclatura deberia simplificar la descripcion de las funciones
+;;; Ademas, estoy seguro que por ahi hay algunas funciones que reciben un agente,
+;;; cuando deberian recibir solo un id, como por ejemplo complex.
+
 ;;; Agents
 (defrecord Agent [name states bindings])
 ;; states is a map from site names (as keywords)

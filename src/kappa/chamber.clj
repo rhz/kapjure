@@ -127,7 +127,7 @@
 
 (defn- select-matching-per-complex [mm]
   (apply merge (for [[c m] mm]
-                 {c (rand-nth m)})))
+                 {c (rand-nth (seq m))})))
 
 (defn- clash? [m]
   (let [agent-ids (for [[c matchings] m
@@ -142,7 +142,10 @@
         mss (:modified-sites m)
         r-c-cods (apply concat (concat
                                 (for [[ma ms] mss]
-                                  ((lift-map ma) ms))
+                                      ;;:let [lm (lift-map ma)]]
+                                  ;;(if (nil? lm)
+                                  ;;  (swank.core/break)
+                                  ((lift-map ma) ms)) ;;)
                                 (for [ra ras]
                                   (apply concat (vals (lift-map ra))))))
         cod-mates (for [{r :rule, c :complex, cod :codomain} r-c-cods
@@ -153,7 +156,10 @@
         (update-in [:matching-map]
                    #(reduce (fn remove-phi [mm {r :rule, c :complex, cod :codomain}]
                               (let [matching (zipmap c (map first cod))]
-                                (update-in mm [r c] disj matching)))
+                                ;;(if (and (some #{matching} ((mm r) c))
+                                ;;         (= (update-in mm [r c] disj matching) mm))
+                                ;;  (swank.core/break)
+                                (update-in mm [r c] disj matching))) ;;)
                             % r-c-cods))
         ;; for all pairs (b, y) in cod(phi_c) remove <r', c, phi_c> from l(b, y)
         (update-in [:lift-map]
@@ -321,15 +327,44 @@
     (into {} (for [obs obs-exprs]
                [obs (map (comp count #(% obs) :obs-exprs) sim)]))))
 
+(defrecord SimulationResult [time obs-expr-counts])
+
+(defn iter
+  "Returns the infinite sequence of consecutive states of a stochastic simulation.
+  The initial conditions for the simulation are given in chamber.
+  Each state (i.e., each element of the sequence) is a record with the fields time
+  and obs-expr-counts. The former contains the point in time in which the state is
+  generated and the latter contains the number of times each observed expression
+  is found in that state."
+  [chamber & callbacks]
+  (cons (SimulationResult. (:time chamber)
+                           (into {} (for [[obs matchings] (:obs-exprs chamber)]
+                                      [obs (count matchings)])))
+        (lazy-seq
+          (apply iter (apply gen-event chamber callbacks) callbacks))))
+
+(defn simulate
+  "Returns a record with the fields time and obs-expr-counts. But, in contrast with
+  kappa.chamber/iter, these fields contain the information of the whole simulation,
+  not each time step. This means the time field contains the sequence of all time
+  points at which events ocurred during the simulation. Likewise, the obs-expr-counts
+  field contains a map from observed expressions to the sequence of their counts."
+  [chamber num-steps & callbacks]
+  (let [result (take num-steps (apply iter chamber callbacks))
+        obs-exprs (keys (:obs-exprs chamber))]
+    (SimulationResult. (map :time result)
+                       (into {} (for [obs obs-exprs]
+                                  [obs (map (comp #(% obs) :obs-expr-counts) result)])))))
+
 
 ;;; Using Clojure futures to perform several simulations simultaneously
 
-(defn psimulate [chamber num-steps num-simulations & callbacks]
-  (for [sim (map deref
-                 (doall (repeatedly num-simulations
-                                    #(future (doall (take num-steps
-                                                          (iterate gen-event chamber)))))))]
-    {:time (map :time sim) :obs-expr-counts (get-obs-expr-counts sim)}))
+(defn psimulate
+  "Repeateadly call the simulate function in different threads."
+  [chamber num-steps num-simulations & callbacks]
+  (map deref
+       (doall (repeatedly num-simulations
+                          #(future (doall (apply simulate num-steps chamber callbacks)))))))
 
 
 ;; TODO reachable-complexes and reachable-reactions
