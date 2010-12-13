@@ -86,6 +86,10 @@
   (with-meta (apply merge exprs)
     {:complexes (mapcat (comp :complexes meta) exprs)}))
 
+;; print-method can't tell if its argument is an expression or other map, so...
+(defn expr-str [expr]
+  (apply str (interpose ", " (map print-str (vals expr)))))
+
 (defn expression?
   "Check if obj is a Kappa expression."
   [obj]

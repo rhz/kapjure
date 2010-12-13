@@ -1,7 +1,8 @@
 (ns kappa.graphics
   {:doc "Plotting functions for Kappa simulations."
    :author "Ricardo Honorato-Zimmer"}
-  (:require [kappa.chamber :as chamber]
+  (:require [kappa.language :as lang]
+            [kappa.chamber :as chamber]
             [clojure.contrib.math :as m]
             [clojure.data.finger-tree :as ft]
             [incanter.core :as incanter]
@@ -30,14 +31,13 @@
                                    [obs (nth-multiple rpd counts)]))
         obs-exprs (keys obs-expr-counts)
         plot (charts/xy-plot time-steps (obs-expr-counts (first obs-exprs))
-                             :series-label (print-str (val (ffirst obs-exprs)))
+                             :series-label (lang/expr-str (first obs-exprs))
                              :legend true
                              :title title
                              :x-label "Time (s)"
                              :y-label "Number of molecules")]
     (doseq [[obs counts] (rest obs-expr-counts)]
-      (charts/add-lines plot time-steps counts
-                        :series-label (print-str (val (first obs)))))
+      (charts/add-lines plot time-steps counts :series-label (lang/expr-str obs)))
     (charts/set-x-range plot -1E-30 (* 1.01 (last time-steps)))
     plot))
 
