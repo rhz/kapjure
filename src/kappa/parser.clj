@@ -213,7 +213,7 @@
     (if (= arrow ::unidirectional-rule)
       (lang/make-rule name lhs rhs rate)
       [(lang/make-rule name lhs rhs rate)
-       (lang/make-rule (str name "-op") rhs lhs second-rate)])))
+       (lang/make-rule (and name (str name "-op")) rhs lhs second-rate)])))
 
 ;;; System
 (h/defrule- <init-line>
