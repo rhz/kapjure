@@ -83,7 +83,7 @@
   (zipmap ids (map expr ids)))
 
 (defn mix-exprs [& exprs]
-  (with-meta (apply merge exprs)
+  (with-meta (reduce into {} exprs)
     {:complexes (mapcat (comp :complexes meta) exprs)}))
 
 ;; print-method can't tell if its argument is an expression or other map, so...
@@ -99,18 +99,9 @@
 
 
 ;;; Match
-(defn- match-dispatch [obj1 obj2]
-  (or (and (agent? obj1) (agent? obj2) ::agent)
-      (and (expression? obj1) (expression? obj2) ::expression)
-      (print-str (class obj1) "and" (class obj2))))
-
-(defmulti match
-  "Check if the given pattern (first argument) matches
-  the given agent or expression (second argument)."
-  {:arglists '([p a] [p c])}
-  match-dispatch)
-
-(defmethod match ::agent [p a] ; p stands for pattern, a for agent
+(defn match-agent
+  "Check if agent p matches agent a."
+  [p a] ; p stands for pattern, a for agent
   (and (= (:name a) (:name p)) ; the names are the same
        ;; every site mentioned in p is present in a
        (every? #((:states a) %) (keys (:states p)))
@@ -125,9 +116,11 @@
                     (not (= ((:bindings a) %) :free)))
                  (keys p-bindings)))))
 
-(defmethod match ::expression [p e] ; p stands for pattern, e for expression
+(defn match-expr
+  "Check if the given pattern p matches the given expression a."
+  [p e] ; p stands for pattern, e for expression
   ;; stores all matchings for every agent in p (lazyly :)
-  (let [matchings (map (fn [p] (filter #(match p (val %)) e)) (vals p))
+  (let [matchings (map (fn [p] (filter #(match-agent p (val %)) e)) (vals p))
         match-comb (apply comb/cartesian-product matchings) ; matching combinations
         n (count p)]
     ;; try every combination of matchings checking if the neighbours corresponds
@@ -161,7 +154,7 @@
   The keys of the returning map are the domain and the values the codomain."
   [expr p-complexes e-complexes]
   (apply merge (for [p-complex p-complexes
-                     matched-complex (keep (partial match p-complex) e-complexes)
+                     matched-complex (keep (partial match-expr p-complex) e-complexes)
                      [pa-id pa :as p-oae] p-complex
                      pa-site (-> pa :states keys)
                      :let [ea-id (matched-complex pa-id),  e-oae (find expr ea-id)]]
@@ -264,30 +257,35 @@
   3. A seq of lhs oaes that doesn't have a counterpart in rhs. These agents will be
      destroyed by the rule."
   [lhs rhs]
-  (let [[lhs-names rhs-names] (map #(set (map (comp :name val) %)) [lhs rhs])
-        
-        [lhs-agents-by-name rhs-agents-by-name]
-        (map (fn [expr names]
-               (apply merge (for [name names]
-                              {name (filter #(= name (-> % val :name))
-                                            (sort-by key expr))})))
-             [lhs rhs] [lhs-names rhs-names])]
-    
-    (->> (for [name (set/union lhs-names rhs-names)]
-           (let [lhs-agents (lhs-agents-by-name name), n (count lhs-agents),
-                 rhs-agents (rhs-agents-by-name name), m (count rhs-agents)]
-             (cond
-               (= n m) [(map vector lhs-agents rhs-agents) nil nil]
-               
-               (< n m) (let [[rhs-agents created-agents]
-                             (split-at (count lhs-agents) rhs-agents)]
-                         [(map vector lhs-agents rhs-agents) created-agents nil])
-               
-               :else   (let [[lhs-agents removed-agents]
-                             (split-at (count rhs-agents) lhs-agents)]
-                         [(map vector lhs-agents rhs-agents) nil removed-agents]))))
-         (apply map vector)
-         (map (partial apply concat)))))
+  (cond
+    (empty? lhs) [nil (seq rhs) nil]
+    (empty? rhs) [nil nil (seq lhs)]
+
+    :else
+    (let [[lhs-names rhs-names] (map #(set (map (comp :name val) %)) [lhs rhs])
+          
+          [lhs-agents-by-name rhs-agents-by-name]
+          (map (fn [expr names]
+                 (apply merge (for [name names]
+                                {name (filter #(= name (-> % val :name))
+                                              (sort-by key expr))})))
+               [lhs rhs] [lhs-names rhs-names])]
+      
+      (->> (for [name (set/union lhs-names rhs-names)]
+             (let [lhs-agents (lhs-agents-by-name name), n (count lhs-agents),
+                   rhs-agents (rhs-agents-by-name name), m (count rhs-agents)]
+               (cond
+                 (= n m) [(map vector lhs-agents rhs-agents) nil nil]
+                 
+                 (< n m) (let [[rhs-agents created-agents]
+                               (split-at (count lhs-agents) rhs-agents)]
+                           [(map vector lhs-agents rhs-agents) created-agents nil])
+                 
+                 :else   (let [[lhs-agents removed-agents]
+                               (split-at (count rhs-agents) lhs-agents)]
+                           [(map vector lhs-agents rhs-agents) nil removed-agents]))))
+        (apply map vector)
+        (map (partial apply concat))))))
 
 (defn get-lhs-agent [id lhs-rhs]
   (ffirst (filter (comp #{id} key second) lhs-rhs)))
@@ -329,7 +327,6 @@
     ;; sets doesn't preserve order, so these [a1 s1] and [a2 s2] are not the same as above
     (let [[a1 s1] (first site-pair), [a2 s2] (second site-pair)]
       (cond
-        ;; TODO can this happen for bind-agents? it happens!
         (some nil? [a2 s2]) (f (complex lhs a1) a1 s1)
         (some nil? [a1 s1]) (f (complex lhs a2) a2 s2)
         :else (f (complex lhs a1) a1 s1 (complex lhs a2) a2 s2)))))
@@ -381,7 +378,7 @@
    (reduce + 1
            (for [[c1 c2] (comb/combinations (map (partial subexpr expr)
                                                  (-> expr meta :complexes)) 2)]
-             (if (match c1 c2) 1 0)))))
+             (if (match-expr c1 c2) 1 0)))))
 
 (defn make-rule [name lhs rhs rate]
   (Rule. name (vary-meta lhs merge
