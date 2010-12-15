@@ -12,42 +12,42 @@
 
 ;;;; language.clj
 (deftest match-agent-=-pattern
-  (is (= (lang/match (lang/make-agent :a {:s "phos"} {}) ; a(s~phos)
-                     (lang/make-agent :a {:s "phos"} {}))
+  (is (= (lang/match-agent (lang/make-agent :a {:s "phos"} {}) ; a(s~phos)
+                           (lang/make-agent :a {:s "phos"} {}))
          true))
-  (is (= (lang/match (lang/make-agent :a {} {:s :bounded}) ; a(s!1)
-                     (lang/make-agent :a {} {:s :bounded}))
+  (is (= (lang/match-agent (lang/make-agent :a {} {:s :bounded}) ; a(s!1)
+                           (lang/make-agent :a {} {:s :bounded}))
          true))
-  (is (= (lang/match (lang/make-agent :a {:s "phos"} {:s :bounded}) ; a(s~phos!1)
-                     (lang/make-agent :a {:s "phos"} {:s :bounded}))
+  (is (= (lang/match-agent (lang/make-agent :a {:s "phos"} {:s :bounded}) ; a(s~phos!1)
+                           (lang/make-agent :a {:s "phos"} {:s :bounded}))
          true)))
 
 (deftest match-agent-more-specific-than-pattern
   ;; unspecified state in pattern
-  (is (= (lang/match (lang/make-agent :a {:s ""} {:s :free}) ; a(s)
-                     (lang/make-agent :a {:s "phos"} {:s :free})) ; a(s~phos)
+  (is (= (lang/match-agent (lang/make-agent :a {:s ""} {:s :free}) ; a(s)
+                           (lang/make-agent :a {:s "phos"} {:s :free})) ; a(s~phos)
          true))
   ;; unspecified binding in pattern
-  (is (= (lang/match (lang/make-agent :a {} {:s :unspecified}) ; a(s!?)
-                     (lang/make-agent :a {} {:s :bounded})) ; a(s!1)
+  (is (= (lang/match-agent (lang/make-agent :a {} {:s :unspecified}) ; a(s!?)
+                           (lang/make-agent :a {} {:s :bounded})) ; a(s!1)
          true)))
 
 (deftest agents-dont-match
   ;; different name
-  (is (= (lang/match (lang/make-agent :a {} {}) ; a()
-                     (lang/make-agent :b {} {})) ; b()
+  (is (= (lang/match-agent (lang/make-agent :a {} {}) ; a()
+                           (lang/make-agent :b {} {})) ; b()
          false))
   ;; different state
-  (is (= (lang/match (lang/make-agent :a {:s "phos"} {}) ; a(s~phos)
-                     (lang/make-agent :a {:s "unphos"} {})) ; a(s~unphos)
+  (is (= (lang/match-agent (lang/make-agent :a {:s "phos"} {}) ; a(s~phos)
+                           (lang/make-agent :a {:s "unphos"} {})) ; a(s~unphos)
          false))
   ;; free site in agent and bound in pattern
-  (is (= (lang/match (lang/make-agent :a {} {:s :bounded}) ; a(s!1)
-                     (lang/make-agent :a {} {:s :free})) ; a(s)
+  (is (= (lang/match-agent (lang/make-agent :a {} {:s :bounded}) ; a(s!1)
+                           (lang/make-agent :a {} {:s :free})) ; a(s)
          false))
   ;; free site in pattern and bound in agent
-  (is (= (lang/match (lang/make-agent :a {:s "phos"} {:s :free}) ; a(s~phos)
-                     (lang/make-agent :a {:s "phos"} {:s :bounded})) ; a(s~phos!1)
+  (is (= (lang/match-agent (lang/make-agent :a {:s "phos"} {:s :free}) ; a(s~phos)
+                           (lang/make-agent :a {:s "phos"} {:s :bounded})) ; a(s~phos!1)
          false)))
 
 ;;;; parser.clj
@@ -68,13 +68,13 @@
   (is (lang/expression? p1))
   (is (lang/expression? e1))
   ;; match
-  (is (= (boolean (lang/match p1 e1)) true))
+  (is (= (boolean (lang/match-expr p1 e1)) true))
   ;; don't match... name mismatch
   (p/let-exprs [e2 "b(s~phos!1),b(s!1)"]
-    (is (= (boolean (lang/match p1 e2)) false)))
+    (is (= (boolean (lang/match-expr p1 e2)) false)))
   ;; match
   (p/let-exprs [p2 "a(s!_)"]
-    (is (= (boolean (lang/match p2 e1)) true))))
+    (is (= (boolean (lang/match-expr p2 e1)) true))))
 
 ;;;; maps.clj
 (deftest activation-and-inhibition-map
@@ -146,7 +146,7 @@
             chamber2 (-> (chamber/gen-event chamber1)
                        (update-in [:mixture] lang/with-complexes))
             chamber3 (chamber/make-chamber [r1] e3 [] [])]
-        (is (lang/match (:mixture chamber2) e2))
+        (is (lang/match-expr (:mixture chamber2) e2))
         (doseq [c (take 10 (iterate chamber/gen-event chamber3))]
           (is (cmpstr (:matching-map c) (->> c :mixture lang/with-complexes
                                              (maps/matching-and-lift-map [r1])
@@ -160,7 +160,7 @@
             chamber2 (-> (chamber/gen-event chamber1)
                        (update-in [:mixture] lang/with-complexes))
             chamber3 (chamber/make-chamber [r1] e3 [] [])]
-        (is (lang/match (:mixture chamber2) e2))
+        (is (lang/match-expr (:mixture chamber2) e2))
         (doseq [c (take 10 (iterate chamber/gen-event chamber3))]
           (is (cmpstr (:matching-map c) (->> c :mixture lang/with-complexes
                                              (maps/matching-and-lift-map [r1])
@@ -174,7 +174,7 @@
             chamber2 (-> (chamber/gen-event chamber1)
                        (update-in [:mixture] lang/with-complexes))
             chamber3 (chamber/make-chamber [r1] e3 [] [])]
-        (is (lang/match (:mixture chamber2) e2))
+        (is (lang/match-expr (:mixture chamber2) e2))
         (doseq [c (take 10 (iterate chamber/gen-event chamber3))]
           (is (cmpstr (:matching-map c) (->> c :mixture lang/with-complexes
                                              (maps/matching-and-lift-map [r1])
