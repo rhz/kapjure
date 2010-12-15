@@ -86,7 +86,7 @@
                                                    (-> r :lhs meta :automorphisms))))
                            % rules)))))
 
-;;; Constructors
+;;; Constructor
 (defn make-chamber
   "Chambers are conceptual compartments where reactions take place.
   There are two types of chamber: one considers rule rates as deterministic
@@ -99,22 +99,24 @@
   Please note that the use of deterministic-rate chambers is experimental and has not been
   tested thoroughly."
   [rules mixture obs-exprs obs-rules & {:keys [rate-type volume] :or {rate-type :stochastic}}]
-  (let [[mm lf] (maps/matching-and-lift-map rules mixture)]
+  (let [fake-rule (lang/make-rule "obs-exprs" (apply lang/mix-exprs obs-exprs) {} 1)
+        rules+obs-exprs (conj rules fake-rule)
+        [mm lf] (maps/matching-and-lift-map rules+obs-exprs mixture)]
     (case rate-type
       :deterministic
       (-> (DeterministicRateChamber. rules mixture 0 0 0 volume
                                      [] [] ; stochastic cs and activities are computed later
-                                     mm lf (maps/activation-map rules) (maps/inhibition-map rules)
-                                     (maps/obs-map obs-exprs mixture) ; observed expressions
-                                     (zipmap obs-rules (repeat {}))) ; observed rules
+                                     mm lf (maps/activation-map rules+obs-exprs)
+                                     (maps/inhibition-map rules+obs-exprs)
+                                     fake-rule (zipmap obs-rules (repeat []))) ; observables
         (update-stochastic-cs)
         (update-activities))
-      
+
       :stochastic
       (-> (StochasticRateChamber. rules mixture 0 0 0 [] ; activities are computed later
-                                  mm lf (maps/activation-map rules) (maps/inhibition-map rules)
-                                  (maps/obs-map obs-exprs mixture) ; observed expressions
-                                  (zipmap obs-rules (repeat {}))) ; observed rules
+                                  mm lf (maps/activation-map rules+obs-exprs)
+                                  (maps/inhibition-map rules+obs-exprs)
+                                  fake-rule (zipmap obs-rules (repeat []))) ; observables
         (update-activities)))))
 
 ;;; Events
@@ -219,54 +221,6 @@
                               (update-in lm [a s] conj {:rule r, :complex c, :codomain cod}))
                             % cod-sites)))))
 
-;; TODO obs-update can be optimized if the activation and inhibition maps are
-;;      extended so rules can map to obs-exprs as well.
-(defn- obs-update [chamber]
-  (let [;;; obs-rules
-        executed-rule (:executed-rule (meta chamber))
-        obs-rules-updated (if (nil? ((:obs-rules chamber) executed-rule))
-                            chamber
-                            (update-in chamber [:obs-rules executed-rule] conj (:time chamber)))
-        ;;; obs-exprs
-        mixture (:mixture chamber)
-        ;; positive update
-        aas (:added-agents (meta chamber))
-        mss (:modified-sites (meta chamber))
-        mcs (set (for [a-id (concat aas (map first mss))] ; modified complexes
-                   (lang/complex mixture (find mixture a-id))))
-        embs (for [obs (keys (:obs-exprs chamber))
-                   emb (filter (comp (partial lang/match obs)
-                                     (partial lang/subexpr mixture)) mcs)]
-               [obs emb])
-        ;; negative update
-        not-embs (for [obs (keys (:obs-exprs chamber))
-                       not-emb (remove (comp (partial lang/match obs)
-                                             (partial lang/subexpr mixture)) mcs)]
-                   [obs not-emb])
-        rcs (for [obs (keys (:obs-exprs chamber))
-                  ra (:removed-agents (meta chamber))]
-              [obs #{ra}])]
-    (-> obs-rules-updated
-        ;; positive update
-        (update-in [:obs-exprs]
-                   #(reduce (fn positive-update [om [obs emb]]
-                              (-> (update-in om [obs] conj emb)
-                                  (vary-meta into (for [a emb] [a [obs emb]]))))
-                            % embs))
-        ;; negative update
-        (update-in [:obs-exprs]
-                   #(reduce (fn negative-update [om [obs rc]]
-                              (let [agent-complexes (meta om)]
-                                (reduce (fn [om ra]
-                                          (let [[obs-in-meta not-emb] (agent-complexes ra)]
-                                            (if (and (not (nil? not-emb))
-                                                     (= obs obs-in-meta))
-                                              (-> (update-in om [obs] disj not-emb)
-                                                  (vary-meta dissoc ra))
-                                              om)))
-                                        om rc)))
-                            % (concat rcs not-embs))))))
-
 (def *max-clashes* 8)
 
 (defn gen-event
@@ -290,7 +244,7 @@
         ;; meta cleanup first... so after the event the user can review the meta info
         (vary-meta merge {:added-agents [], :removed-agents [], :modified-sites []})
         (vary-meta merge {:executed-rule r})
-        ((:action r) m) negative-update positive-update obs-update
+        ((:action r) m) negative-update positive-update
         (assoc :clash-cnt 0)
         (update-in [:time] + dt)
         (update-in [:event-cnt] inc)
@@ -322,10 +276,19 @@
 (defn get-obs-expr-counts
   "Get a map from observables (which are expressions) to the counts they have at
   each simulation step."
+  [chamber]
+  (let [obs-exprs-rule (:obs-exprs chamber)
+        obs-exprs (:lhs obs-exprs-rule)]
+    (into {} (for [obs (-> obs-exprs meta :complexes)]
+               [(lang/subexpr obs-exprs obs)
+                (count (((:matching-map chamber) obs-exprs-rule) obs))]))))
+
+(defn get-sim-counts
   [sim]
-  (let [obs-exprs (set (mapcat (comp keys :obs-exprs) sim))]
+  (let [counts (map get-obs-expr-counts sim)
+        obs-exprs (set (mapcat keys counts))]
     (into {} (for [obs obs-exprs]
-               [obs (map (comp count #(% obs) :obs-exprs) sim)]))))
+               [obs (map #(% obs) counts)]))))
 
 (defrecord SimulationResult [time obs-expr-counts])
 

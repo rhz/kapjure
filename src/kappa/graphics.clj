@@ -45,7 +45,7 @@
   "Plot the observed expressions of a seq of chambers."
   [sim & {:keys [title rpd] :or {title "" rpd 1}}]
   (plot-result {:time (map :time sim)
-                :obs-expr-counts (chamber/get-obs-expr-counts sim)}
+                :obs-expr-counts (chamber/get-sim-counts sim)}
                :title title
                :rpd rpd))
 

@@ -180,19 +180,3 @@
                      ;; but first make just one big list of all the maps
                      (partial apply concat))]))))
 
-;;; Observables map: like a matching map for observed expressions
-(defn obs-map
-  "Returns a map from observables (which are expressions) to the complexes they
-  match to into the mixture.
-  Note: not implemented yet."
-  [observables mixture]
-  (let [om (for [obs observables]
-             [obs (set (filter (comp (partial lang/match obs)
-                                     (partial lang/subexpr mixture))
-                               (-> mixture meta :complexes)))])]
-    (with-meta (into {} om)
-      ;; metadata of obs-exprs is used as a simple lift map
-      (into {} (for [[obs embs] om
-                     emb embs, a emb]
-                 [a [obs emb]])))))
-
