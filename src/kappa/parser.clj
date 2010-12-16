@@ -130,20 +130,20 @@
                {id1 {sn1 [id2 sn2]}, id2 {sn2 [id1 sn1]}}))
       (throw (Exception. (str "Could not parse expression: " expr))))))
 
-(defn- if-intersects-unify [first-nbs]
-  (loop [nbs (set first-nbs)]
-    (let [second-nbs (apply set/union (map #(if (empty? (set/intersection %1 %2))
-                                              #{%1 %2}
-                                              #{(set/union %1 %2)}) nbs nbs))]
-      (if (= nbs second-nbs)
-        second-nbs
-        (recur second-nbs)))))
+(defn- if-intersects-unify [first-nbs-seq]
+  (reduce (fn [s nbs]
+            (let [intersects-nbs (filter #(seq (set/intersection % nbs)) s)]
+              (if (empty? intersects-nbs)
+                (conj s nbs)
+                (conj (remove #(seq (set/intersection % nbs)) s)
+                      (apply set/union nbs intersects-nbs)))))
+          [] first-nbs-seq))
 
 (defn- get-complexes [expr nbs]
-  (let [first-nbs (for [[id m] nbs]
-                    (apply hash-set id (map first (vals m))))
+  (let [first-nbs-seq (for [[id m] nbs]
+                        (apply hash-set id (map first (vals m))))
         unbound-agents (set/difference (set (keys expr)) (set (keys nbs)))
-        cs (if-intersects-unify first-nbs)]
+        cs (if-intersects-unify first-nbs-seq)]
     (concat (map hash-set unbound-agents) cs)))
 
 (defn- replace-bindings [expr nbs]
