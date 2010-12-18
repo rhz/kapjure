@@ -70,13 +70,19 @@
 
 (defn find-modified-site-in-mixed-expr-codomain [mss e1 e2]
   (let [;; compute a minimal mixed expression between e1 and e2
-        S (lang/with-complexes (make-minimal-mixed-expr e1 e2)),
+        S (lang/with-complexes (make-minimal-mixed-expr e1 e2))
         
         ;; compute the codomains of e1 and e2 in S
-        [e1-S e2-S] (map lang/domain2codomain [e1 e2] (repeat S)),
+        [e1-S e2-S] (map (fn [e S]
+                           (let [e-complexes (map (partial lang/subexpr e)
+                                                  (-> e meta :complexes))
+                                 S-complexes (map (partial lang/subexpr S)
+                                                  (-> S meta :complexes))]
+                             (lang/domain2codomain S e-complexes S-complexes)))
+                         [e1 e2] (repeat S))
         
         ;; compute the intersection between the sites in the codomains of e1 and e2 in S
-        cod (apply set/intersection (map (comp set vals) [e1-S e2-S])),
+        cod (apply set/intersection (map (comp set vals) [e1-S e2-S]))
         
         ;; get back the sites corresponding to that intersection in e1
         dom (set (for [[pa-site ea-site] e1-S
@@ -84,7 +90,8 @@
                    pa-site))]
     ;; if at least one of the sites in the intersection is a site modified by r
     ;; then r1 activates/inhibits r2
-    (some dom mss)))
+    (some dom (for [[[id _] s] mss]
+                [id s])))) ;; TODO perhaps I should store mss using just the agent's id
 
 (defn activates?
   "Tells whether r1 activates r2."
@@ -144,30 +151,23 @@
   (->> (for [r rule-set
              cr (-> r :lhs meta :complexes)
              :let [cr-expr (lang/subexpr (:lhs r) cr)
-                   
-                   cr2cms (keep (fn cr2cms-gen-fn [cm]
-                                  (let [cm-expr (lang/subexpr mixture cm)]
-                                    (lang/complex-dom2cod mixture [cr-expr] [cm-expr])))
-                                (-> mixture meta :complexes))
 
-                   ;; take the ids and sites in the codomain
-                   cods (for [cr2cm cr2cms]
-                          (for [[[id _] s] (vals cr2cm)]
-                            [id s]))
-               
+                   embs (remove empty?
+                                (for [cm (-> mixture meta :complexes)
+                                      :let [cm-expr (lang/subexpr mixture cm)]]
+                                  (lang/domain2codomain mixture [cr-expr] [cm-expr])))
+
                    ;; for each cr make a map from rule agent ids to mixture agent ids
-                   matchings (for [cr2cm cr2cms]
-                               (into {} (for [[[[ar-id _] _] [[am-id _] _]] cr2cm]
+                   matchings (for [emb embs]
+                               (into {} (for [[[ar-id _] [am-id  _]] emb]
                                           [ar-id am-id])))]]
-         
-         [;; this goes to the matching map
+
+         [{r {cr (set matchings)}} ;; => matching-map
           ;;{r {cr (apply ft/counted-sorted-set-by map-compare matchings)}}
-          {r {cr (set matchings)}}
-          ;; and this to the lift map
-          (for [cod cods
-                [a-id s] cod]
-            {a-id {s [{:rule r, :complex cr, :codomain cod}]}})])
-    
+          (for [emb embs
+                [_ [cod-id cod-site]] emb]
+            {cod-id {cod-site [{:rule r, :complex cr, :emb emb}]}})]) ;; => lift-map
+
     (apply map vector) ; put what belongs to the matching-map together in a vector ...
     ;; ... and what belongs to the lift-map together in another vector
     ((partial map #(%1 %2)

@@ -62,7 +62,7 @@
 
 (defn isomerization [num-steps num-simulations]
   (p/let-rules [r1 "A(x) -> B(x) @ 1"]
-    (p/let-exprs [initial-mixture "1000000 * A(x)"
+    (p/let-exprs [initial-mixture "100000 * A(x)"
                   A "A(x)" B "B(x)"]
       (let [chamber (c/make-chamber [r1] initial-mixture [A B] [])
             results (c/psimulate chamber num-steps num-simulations)

@@ -142,42 +142,36 @@
         m (meta chamber)
         ras (:removed-agents m)
         mss (:modified-sites m)
-        r-c-cods (apply concat (concat
+        r-c-embs (apply concat (concat
                                 (for [[ma ms] mss]
-                                      ;;:let [lm (lift-map ma)]]
-                                  ;;(if (nil? lm)
-                                  ;;  (swank.core/break)
-                                  ((lift-map ma) ms)) ;;)
+                                  ((lift-map ma) ms))
                                 (for [ra ras]
                                   (apply concat (vals (lift-map ra))))))
-        cod-mates (for [{r :rule, c :complex, cod :codomain} r-c-cods
-                        [a-id s] cod]
-                    [a-id s r c cod])]
+        cod-mates (for [{r :rule, c :complex, emb :emb} r-c-embs
+                        [_ [cod-id cod-site]] emb]
+                    [cod-id cod-site r c emb])]
     (-> chamber
-        ;; remove phi_c from Phi(r', c)
-        (update-in [:matching-map]
-                   #(reduce (fn remove-phi [mm {r :rule, c :complex, cod :codomain}]
-                              (let [matching (zipmap c (map first cod))]
-                                ;;(if (and (some #{matching} ((mm r) c))
-                                ;;         (= (update-in mm [r c] disj matching) mm))
-                                ;;  (swank.core/break)
-                                (update-in mm [r c] disj matching))) ;;)
-                            % r-c-cods))
-        ;; for all pairs (b, y) in cod(phi_c) remove <r', c, phi_c> from l(b, y)
-        (update-in [:lift-map]
-                   #(reduce (fn lm-update [lm [a-id s r c cod]]
-                              (update-in lm [a-id s]
-                                         (fn [lm-vals]
-                                           (remove #{{:rule r, :complex c, :codomain cod}}
-                                                   lm-vals))))
-                            % cod-mates))
-        ;; set l(a, x) = empty set
-        (update-in [:lift-map]
-                   #(reduce (fn remove-ax-from-lm [lm [a x]]
-                              (update-in lm [a] dissoc x))
-                            % mss))
-        (update-in [:lift-map]
-                   #(reduce (fn [lm a] (dissoc lm a)) % ras)))))
+      ;; remove phi_c from Phi(r', c)
+      (update-in [:matching-map]
+                 #(reduce (fn remove-phi [mm {r :rule, c :complex, emb :emb}]
+                            (let [matching (into {} (for [[[dom-id _] [cod-id _]] emb]
+                                                      [dom-id cod-id]))]
+                              (update-in mm [r c] disj matching)))
+                          % r-c-embs))
+      ;; for all pairs (b, y) in cod(phi_c) remove <r', c, phi_c> from l(b, y)
+      (update-in [:lift-map]
+                 #(reduce (fn lm-update [lm [a-id s r c emb]]
+                            (update-in lm [a-id s]
+                                       (fn [lm-vals]
+                                         (remove #{{:rule r, :complex c, :emb emb}} lm-vals))))
+                          % cod-mates))
+      ;; set l(a, x) = empty set
+      (update-in [:lift-map]
+                 #(reduce (fn remove-ax-from-lm [lm [a x]]
+                            (update-in lm [a] dissoc x))
+                          % mss))
+      (update-in [:lift-map]
+                 #(reduce (fn [lm a] (dissoc lm a)) % ras)))))
 
 (defn- get-embeddings [mixture a-ids & rules]
   (for [r rules
@@ -186,11 +180,9 @@
               cms (set (map #(lang/complex mixture (find mixture %)) a-ids))
               cm-exprs (map #(lang/subexpr mixture %) cms)]
         cm-expr cm-exprs
-        :let [dom2cod (map (fn [[[[id1 _] s1] [[id2 _] s2]]]
-                             [[id1 s1] [id2 s2]])
-                           (lang/complex-dom2cod mixture [cr-expr] [cm-expr]))]
-        :when (not (empty? dom2cod))]
-    [r cr (into {} dom2cod)]))
+        :let [embs (lang/domain2codomain mixture [cr-expr] [cm-expr])]
+        :when (not (empty? embs))]
+    [r cr (into {} embs)]))
 
 (defn- positive-update [chamber]
   (let [ram (:ram chamber)
@@ -201,25 +193,24 @@
         mss (:modified-sites m)
         ;; for every c in C(r') try to find a unique embedding
         ;; extension phi_c in [c S'] of the injection c -> {a}
-        embs (apply get-embeddings mixture (concat aas (map first mss)) activated-rules)
-        emb-agent-ids (for [[r cr cr2cm] embs]
-                        [r cr (into {} (for [[[id1 _] [id2 _]] cr2cm]
+        r-c-embs (apply get-embeddings mixture (concat aas (map first mss)) activated-rules)
+        emb-agent-ids (for [[r cr emb] r-c-embs]
+                        [r cr (into {} (for [[[id1 _] [id2 _]] emb]
                                          [id1 id2]))])
-        cod-sites (for [[r cr cr2cm] embs
-                        :let [cod (vals cr2cm)]
-                        [a-id s] cod]
-                    [a-id s r cr cod])]
+        cod-sites (for [[r cr emb] r-c-embs
+                        [cod-id cod-site] (vals emb)]
+                    [cod-id cod-site r cr emb])]
     (-> chamber
-        ;; for all obtained phi_cs add phi_c to Phi(r', c)
-        (update-in [:matching-map]
-                   #(reduce (fn update-mm [mm [r c emb]]
-                              (update-in mm [r c] conj emb))
-                            % emb-agent-ids))
-        ;; and add <r', c, phi_c> to l(b, y) for all pairs (b, y) in cod(phi_c)
-        (update-in [:lift-map]
-                   #(reduce (fn update-lm [lm [a s r c cod]]
-                              (update-in lm [a s] conj {:rule r, :complex c, :codomain cod}))
-                            % cod-sites)))))
+      ;; for all obtained phi_cs add phi_c to Phi(r', c)
+      (update-in [:matching-map]
+                 #(reduce (fn update-mm [mm [r c emb]]
+                            (update-in mm [r c] conj emb))
+                          % emb-agent-ids))
+      ;; and add <r', c, phi_c> to l(b, y) for all pairs (b, y) in cod(phi_c)
+      (update-in [:lift-map]
+                 #(reduce (fn update-lm [lm [a s r c emb]]
+                            (update-in lm [a s] conj {:rule r, :complex c, :emb emb}))
+                          % cod-sites)))))
 
 (def *max-clashes* 8)
 
@@ -232,7 +223,7 @@
   (when (or (> (:clash-cnt chamber) *max-clashes*)
             (every? zero? (vals (:activity-map chamber))))
     (throw (Exception. "Deadlock found!")))
-  (let [r (select-rule (:activity-map chamber))
+  (let [r (select-rule (select-keys (:activity-map chamber) (:rules chamber))) ;; we don't want to select the fake rule
         m (select-matching-per-complex ((:matching-map chamber) r))
         dt (time-advance (:activity-map chamber))]
     (if (clash? m)
@@ -301,8 +292,7 @@
   is found in that state."
   [chamber & callbacks]
   (cons (SimulationResult. (:time chamber)
-                           (into {} (for [[obs matchings] (:obs-exprs chamber)]
-                                      [obs (count matchings)])))
+                           (get-obs-expr-counts chamber))
         (lazy-seq
           (apply iter (apply gen-event chamber callbacks) callbacks))))
 
@@ -314,7 +304,7 @@
   field contains a map from observed expressions to the sequence of their counts."
   [chamber num-steps & callbacks]
   (let [result (take num-steps (apply iter chamber callbacks))
-        obs-exprs (keys (:obs-exprs chamber))]
+        obs-exprs (keys (:obs-expr-counts (first result)))]
     (SimulationResult. (map :time result)
                        (into {} (for [obs obs-exprs]
                                   [obs (map (comp #(% obs) :obs-expr-counts) result)])))))

@@ -62,7 +62,8 @@
 (defn complex
   "Returns the ids of the complex to which initial-oae belongs."
   [expr initial-oae]
-  (set (map first (misc/pre-traverse (partial get-neighbours expr) initial-oae))))
+  (set (map first
+            (misc/pre-traverse (partial get-neighbours expr) initial-oae))))
 
 (defn compute-complexes [expr]
   (let [get-complex (partial complex expr)
@@ -146,30 +147,19 @@
             pa-id->ea-id
             (recur (rest left))))))))
 
-(defn complex-dom2cod
+(defn domain2codomain
   "Returns a map from pairs [agent site] in p-complexes to pairs [agent site]
   in e-complexes that matches. e- and p-complexes must be seqs of expressions,
   each expression representing just one complex.
 
   The keys of the returning map are the domain and the values the codomain."
   [expr p-complexes e-complexes]
-  (apply merge (for [p-complex p-complexes
-                     matched-complex (keep (partial match-expr p-complex) e-complexes)
-                     [pa-id pa :as p-oae] p-complex
-                     pa-site (-> pa :states keys)
-                     :let [ea-id (matched-complex pa-id),  e-oae (find expr ea-id)]]
-                 {[p-oae pa-site] [e-oae pa-site]})))
-
-(defn domain2codomain
-  "Returns a map from pairs [agent site] in p to pairs [agent site] in e that matches.
-  This function requires that the given expressions has accurate information about
-  their complexes in the metadata.
-
-  The keys of the returning map are the domain and the values the codomain."
-  [p e]
-  (let [e-complexes (map (partial subexpr e) (-> e meta :complexes))
-        p-complexes (map (partial subexpr p) (-> p meta :complexes))]
-    (complex-dom2cod e p-complexes e-complexes)))
+  (into {} (for [p-complex p-complexes
+                 matched-complex (keep (partial match-expr p-complex) e-complexes)
+                 [pa-id pa] p-complex
+                 pa-site (-> pa :states keys)
+                 :let [ea-id (matched-complex pa-id)]]
+             [[pa-id pa-site] [ea-id pa-site]])))
 
 
 ;;; Rules
@@ -187,8 +177,8 @@
   (fn [chamber matching]
     (let [ma-id ((matching c) a-id)]
       (-> chamber
-          (assoc-in [:mixture ma-id :states s] new-state)
-          (vary-meta update-in [:modified-sites] conj [ma-id s])))))
+        (assoc-in [:mixture ma-id :states s] new-state)
+        (vary-meta update-in [:modified-sites] conj [ma-id s])))))
 
 (defn bind-agents
   "Returns a function that binds agents a1 and a2 through
@@ -198,9 +188,9 @@
     (let [ma1 ((matching c1) a1-id)
           ma2 ((matching c2) a2-id)]
       (-> chamber
-          (assoc-in [:mixture ma1 :bindings s1] ma2)
-          (assoc-in [:mixture ma2 :bindings s2] ma1)
-          (vary-meta update-in [:modified-sites] into [[ma1 s1] [ma2 s2]])))))
+        (assoc-in [:mixture ma1 :bindings s1] ma2)
+        (assoc-in [:mixture ma2 :bindings s2] ma1)
+        (vary-meta update-in [:modified-sites] into [[ma1 s1] [ma2 s2]])))))
 
 (defn unbind-agents
   "Returns a function that unbinds agents a1 and a2."
@@ -208,16 +198,19 @@
      (fn [chamber matching]
        (let [ma1 ((matching c1) a1-id)
              ma2 ((matching c2) a2-id)]
+         ;;(when (or (not (contains? (:mixture chamber) ma1))
+         ;;          (not (contains? (:mixture chamber) ma2)))
+         ;;  (swank.core/break))
          (-> chamber
-             (assoc-in [:mixture ma1 :bindings s1] :free)
-             (assoc-in [:mixture ma2 :bindings s2] :free)
-             (vary-meta update-in [:modified-sites] into [[ma1 s1] [ma2 s2]])))))
+           (assoc-in [:mixture ma1 :bindings s1] :free)
+           (assoc-in [:mixture ma2 :bindings s2] :free)
+           (vary-meta update-in [:modified-sites] into [[ma1 s1] [ma2 s2]])))))
   ([c1 [a1-id _] s1]
      (fn [chamber matching]
        (let [ma1 ((matching c1) a1-id)]
          (-> chamber
-             (assoc-in [:mixture ma1 :bindings s1] :free)
-             (vary-meta update-in [:modified-sites] into [[ma1 s1]]))))))
+           (assoc-in [:mixture ma1 :bindings s1] :free)
+           (vary-meta update-in [:modified-sites] into [[ma1 s1]]))))))
 
 (defn create-agent
   "Returns a function that creates an agent a in chamber's mixture.
