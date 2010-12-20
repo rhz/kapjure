@@ -215,13 +215,13 @@
 (defn create
   "Returns a function that creates an agent a in chamber's mixture.
   Agent a must not be bound."
-  [a]
-  (if (some #(or (number? %) (= % :semi-link)) (vals (:bindings a)))
+  [agent-spec]
+  (if (some #(or (number? %) (= % :semi-link)) (vals (:bindings agent-spec)))
     (throw (Exception. "cannot create bound agents"))
     (fn [chamber]
       (let [id (misc/counter)]
         (-> chamber
-          (assoc-in [:mixture id] a)
+          (assoc-in [:mixture id] agent-spec)
           (vary-meta update-in [:added-agents] conj id))))))
 
 (defn create-agent

@@ -10,10 +10,12 @@
 
 
 (defrecord DeterministicRateChamber [rules mixture time event-cnt clash-cnt volume stochastic-cs
-                                     activity-map matching-map lift-map ram rim obs-exprs obs-rules])
+                                     activity-map matching-map lift-map ram rim obs-exprs obs-rules
+                                     callbacks])
 
 (defrecord StochasticRateChamber [rules mixture time event-cnt clash-cnt
-                                  activity-map matching-map lift-map ram rim obs-exprs obs-rules])
+                                  activity-map matching-map lift-map ram rim obs-exprs obs-rules
+                                  callbacks])
 
 ;;; Stochastic constants
 (defn k2c
@@ -106,18 +108,20 @@
     (case rate-type
       :deterministic
       (-> (DeterministicRateChamber. rules mixture 0 0 0 volume
-                                     [] [] ; stochastic cs and activities are computed later
+                                     [] [] ;; stochastic cs and activities are computed later
                                      mm lf (maps/activation-map rules+obs-exprs)
                                      (maps/inhibition-map rules+obs-exprs)
-                                     fake-rule (zipmap obs-rules (repeat []))) ; observables
+                                     fake-rule (zipmap obs-rules (repeat [])) ;; observables
+                                     callbacks)
         (update-stochastic-cs)
         (update-activities))
 
       :stochastic
-      (-> (StochasticRateChamber. rules mixture 0 0 0 [] ; activities are computed later
+      (-> (StochasticRateChamber. rules mixture 0 0 0 [] ;; activities are computed later
                                   mm lf (maps/activation-map rules+obs-exprs)
                                   (maps/inhibition-map rules+obs-exprs)
-                                  fake-rule (zipmap obs-rules (repeat []))) ; observables
+                                  fake-rule (zipmap obs-rules (repeat [])) ;; observables
+                                  callbacks)
         (update-activities)))))
 
 ;;; Events
