@@ -24,20 +24,23 @@
 
 (defn plot-result
   "Plot the results of a simulation (as returned by kappa.chamber/psimulate)."
-  [result & {:keys [title rpd] :or {title "" rpd 1}}]
+  [result & {:keys [title rpd labels] :or {title "" rpd 1}}]
   (let [{time-steps :time obs-expr-counts :obs-expr-counts} result
         time-steps (nth-multiple rpd time-steps)
         obs-expr-counts (into {} (for [[obs counts] obs-expr-counts]
                                    [obs (nth-multiple rpd counts)]))
         obs-exprs (keys obs-expr-counts)
-        plot (charts/xy-plot time-steps (obs-expr-counts (first obs-exprs))
-                             :series-label (lang/expr-str (first obs-exprs))
+        labels (or labels
+                   (into {} (for [obs obs-exprs]
+                              [obs (lang/expr-str obs)])))
+        plot (charts/xy-plot time-steps (-> obs-exprs first obs-expr-counts)
+                             :series-label (-> obs-exprs first labels)
                              :legend true
                              :title title
                              :x-label "Time (s)"
                              :y-label "Number of molecules")]
     (doseq [[obs counts] (rest obs-expr-counts)]
-      (charts/add-lines plot time-steps counts :series-label (lang/expr-str obs)))
+      (charts/add-lines plot time-steps counts :series-label (labels obs)))
     (charts/set-x-range plot -1E-30 (* 1.01 (last time-steps)))
     plot))
 
