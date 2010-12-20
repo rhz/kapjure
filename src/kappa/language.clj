@@ -212,35 +212,44 @@
            (assoc-in [:mixture ma1 :bindings s1] :free)
            (vary-meta update-in [:modified-sites] into [[ma1 s1]]))))))
 
+(defn create
+  "Returns a function that creates an agent a in chamber's mixture.
+  Agent a must not be bound."
+  [a]
+  (if (some #(or (number? %) (= % :semi-link)) (vals (:bindings a)))
+    (throw (Exception. "cannot create bound agents"))
+    (fn [chamber]
+      (let [id (misc/counter)]
+        (-> chamber
+          (assoc-in [:mixture id] a)
+          (vary-meta update-in [:added-agents] conj id))))))
+
 (defn create-agent
   "Returns a function that creates an agent a in chamber's mixture.
   Agent a must not be bound."
-  [agent-spec]
-  ;; TODO should I allow to create bound agents/complexes?
-  (if (every? #(or (= % :free) (= % :unspecified)) (vals (:bindings agent-spec)))
+  [a]
+  (let [f (create a)]
     (fn [chamber _]
-      (let [id (misc/counter)]
-        (-> chamber
-          (assoc-in [:mixture id] agent-spec)
-          (vary-meta update-in [:added-agents] conj id))))
-    (throw (Exception. "agents created by rules cannot be bound."))))
+      (f chamber))))
 
-(defn destroy-agent
-  "Returns a function that destroys agent a in chamber's mixture."
-  [c [a-id _]]
-  (fn [chamber matching]
-    (let [ma ((matching c) a-id)
-          mixture (:mixture chamber)
-          nb-ids (filter number? (vals (:bindings (mixture ma))))]
+(defn destroy [id]
+  (fn [chamber]
+    (let [mixture (:mixture chamber)
+          nb-ids (filter number? (vals (:bindings (mixture id))))]
       (reduce (fn [chamber nb-id]
-                (let [nb-site (first (filter (comp #{ma} val) (:bindings (mixture nb-id))))]
+                (let [nb-site (first (filter (comp #{id} val) (:bindings (mixture nb-id))))]
                   (-> chamber
                     (assoc-in [:mixture nb-id :bindings nb-site] :free)
                     (vary-meta update-in [:modified-sites] conj [nb-id nb-site]))))
               (-> chamber
-                (update-in [:mixture] dissoc ma)
-                (vary-meta update-in [:removed-agents] conj ma))
+                (update-in [:mixture] dissoc id)
+                (vary-meta update-in [:removed-agents] conj id))
               nb-ids))))
+
+(defn destroy-agent [c [a-id _]]
+  (fn [chamber matching]
+    (let [ma ((matching c) a-id)]
+      ((destroy ma) chamber))))
 
 (defn pair-exprs
   "Returns a seq of three things:
@@ -294,11 +303,15 @@
                                  (-> rstates keys set))]
              (let [ls (lstates site), lb (lbindings site),
                    rs (rstates site), rb (rbindings site)]
+               ;;(swank.core/break)
                (merge
                 (when-not (or (= ls rs) (nil? rs))
                   {:modified [[lhs-agent site rs]]})
                 (when (and (not (number? lb)) (number? rb))
                   {:bound [[(get-lhs-agent rb lhs-rhs) lhs-agent site]]})
+                (when (and (number? lb) (number? rb) (not= lb (get-lhs-agent rb lhs-rhs)))
+                  {:unbound [[(find lhs lb) lhs-agent site]] ;; when it unbinds and then
+                   :bound [[(get-lhs-agent rb lhs-rhs) lhs-agent site]]}) ;; binds to other agent
                 (when (and (number? lb) (not (number? rb)))
                   {:unbound [[(find lhs lb) lhs-agent site]]})
                 (when (and (= lb :semi-link) (not= rb :semi-link))
@@ -313,12 +326,14 @@
 
 (defn- get-fns [f ss lhs]
   (for [site-pair (into #{} (for [[a2 a1 s1] ss
-                                  :let [s2 (->> ss (filter (comp #{[a1 a2]}
-                                                                 #(take 2 %)))
-                                                first misc/third)]]
+                                  :let [s2 (->> ss
+                                             (filter (comp #{[a1 a2]} #(take 2 %)))
+                                             first
+                                             misc/third)]]
                               #{[a1 s1] [a2 s2]}))]
     ;; sets doesn't preserve order, so these [a1 s1] and [a2 s2] are not the same as above
     (let [[a1 s1] (first site-pair), [a2 s2] (second site-pair)]
+      ;;(swank.core/break)
       (cond
         (some nil? [a2 s2]) (f (complex lhs a1) a1 s1)
         (some nil? [a1 s1]) (f (complex lhs a2) a2 s2)
@@ -360,6 +375,7 @@
 
 (defn action [lhs rhs]
   (let [{eas :elementary-actions, mss :modified-sites} (elementary-actions lhs rhs)]
+    ;;(dorun eas) ;; DEBUG
     (with-meta
       (fn [chamber matching]
         ((apply comp (map #(fn [chamber] (% chamber matching)) eas)) chamber))
