@@ -98,8 +98,9 @@
 
   Please note that the use of deterministic-rate chambers is experimental and has not been
   tested thoroughly."
-  [rules mixture obs-exprs obs-rules & {:keys [rate-type volume] :or {rate-type :stochastic}}]
-  (let [fake-rule (lang/make-rule "obs-exprs" (apply lang/mix-exprs obs-exprs) {} 1)
+  [rules mixture obs-exprs obs-rules & options]
+  (let [{:keys [rate-type volume callbacks] :or {rate-type :stochastic volume 1}} options
+        fake-rule (lang/make-rule "obs-exprs" (apply lang/mix-exprs obs-exprs) {} 1)
         rules+obs-exprs (conj rules fake-rule)
         [mm lf] (maps/matching-and-lift-map rules+obs-exprs mixture)]
     (case rate-type
@@ -223,7 +224,8 @@
   (when (or (> (:clash-cnt chamber) *max-clashes*)
             (every? zero? (vals (:activity-map chamber))))
     (throw (Exception. "Deadlock found!")))
-  (let [r (select-rule (select-keys (:activity-map chamber) (:rules chamber))) ;; we don't want to select the fake rule
+  (let [r (select-rule (select-keys (:activity-map chamber)
+                                    (:rules chamber))) ;; we don't want to select the fake rule
         m (select-matching-per-complex ((:matching-map chamber) r))
         dt (time-advance (:activity-map chamber))]
     (if (clash? m)
@@ -232,16 +234,18 @@
         (update-in [:time] + dt) ; and time
         (update-in [:event-cnt] inc))
       (-> chamber
-        ;; meta cleanup first... so after the event the user can review the meta info
+        ;; meta cleanup first
         (vary-meta merge {:added-agents [], :removed-agents [], :modified-sites []})
         (vary-meta merge {:executed-rule r})
-        ((:action r) m) negative-update positive-update
+        ((:action r) m)
+        ((apply comp identity (:callbacks chamber)))
+        ((apply comp identity callbacks))
+        negative-update positive-update
         (assoc :clash-cnt 0)
         (update-in [:time] + dt)
         (update-in [:event-cnt] inc)
         (update-activities (concat ((:ram chamber) r)
-                                   ((:rim chamber) r) [r]))
-        ((apply comp identity callbacks))))))
+                                   ((:rim chamber) r) [r]))))))
 
 ;; Talvez sea mejor realizar el positive y negative update en cada accion.
 
