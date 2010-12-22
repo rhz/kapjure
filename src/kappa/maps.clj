@@ -4,8 +4,8 @@
   (:require [kappa.language :as lang]
             [kappa.misc :as misc]
             [clojure.set :as set]
-            [clojure.contrib.condition :as c]
-            [clojure.data.finger-tree :as ft]))
+            [clojure.contrib.condition :as c]))
+            ;;[clojure.data.finger-tree :as ft]))
 
 ;;; Activation and Inhibition map
 
@@ -125,10 +125,10 @@
 
 
 ;;; Matching map and Lift map
+(comment
 (defn map-compare [m1 m2]
   (compare (vec (sort-by > (vals m1))) (vec (sort-by > (vals m2)))))
 
-(comment
   (let [h1 (hash m1)
         h2 (hash m2)]
     (cond
@@ -166,7 +166,7 @@
           ;;{r {cr (apply ft/counted-sorted-set-by map-compare matchings)}}
           (for [emb embs
                 [_ [cod-id cod-site]] emb]
-            {cod-id {cod-site [{:rule r, :complex cr, :emb emb}]}})]) ;; => lift-map
+            {cod-id {cod-site #{{:rule r, :complex cr, :emb emb}}}})]) ;; => lift-map
 
     (apply map vector) ; put what belongs to the matching-map together in a vector ...
     ;; ... and what belongs to the lift-map together in another vector
@@ -176,7 +176,7 @@
                (comp (partial apply merge-with ;; if the same agent is found twice in the
                               ;; lift map, merge the maps associated with its sites using
                               ;; vector and then set (in lift map, sites may appear twice)
-                              (partial merge-with (comp doall concat)))
+                              (partial merge-with into))
                      ;; but first make just one big list of all the maps
                      (partial apply concat))]))))
 

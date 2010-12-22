@@ -147,11 +147,11 @@
         m (meta chamber)
         ras (:removed-agents m)
         mss (:modified-sites m)
-        r-c-embs (apply concat (concat
-                                (for [[ma ms] mss]
-                                  ((lift-map ma) ms))
-                                (for [ra ras]
-                                  (apply concat (vals (lift-map ra))))))
+        r-c-embs (apply set/union (concat
+                                   (for [[ma ms] mss]
+                                     ((lift-map ma) ms))
+                                   (for [ra ras]
+                                     (apply set/union (vals (lift-map ra))))))
         cod-mates (for [{r :rule, c :complex, emb :emb} r-c-embs
                         [_ [cod-id cod-site]] emb]
                     [cod-id cod-site r c emb])]
@@ -166,28 +166,27 @@
       ;; for all pairs (b, y) in cod(phi_c) remove <r', c, phi_c> from l(b, y)
       (update-in [:lift-map]
                  #(reduce (fn lm-update [lm [a-id s r c emb]]
-                            (update-in lm [a-id s]
-                                       (fn [lm-vals]
-                                         (remove #{{:rule r, :complex c, :emb emb}} lm-vals))))
+                            (update-in lm [a-id s] disj {:rule r, :complex c, :emb emb}))
                           % cod-mates))
       ;; set l(a, x) = empty set
       (update-in [:lift-map]
                  #(reduce (fn remove-ax-from-lm [lm [a x]]
+                            ;;(assoc-in lm [a x] #{})) ;; what's better?
                             (update-in lm [a] dissoc x))
                           % mss))
       (update-in [:lift-map]
                  #(reduce (fn [lm a] (dissoc lm a)) % ras)))))
 
 (defn- get-embeddings [mixture a-ids & rules]
-  (for [r rules
-        cr (-> r :lhs meta :complexes)
-        :let [cr-expr (lang/subexpr (:lhs r) cr)
-              cms (set (map #(lang/complex mixture (find mixture %)) a-ids))
-              cm-exprs (map #(lang/subexpr mixture %) cms)]
-        cm-expr cm-exprs
-        :let [embs (lang/domain2codomain mixture [cr-expr] [cm-expr])]
-        :when (not (empty? embs))]
-    [r cr (into {} embs)]))
+  (let [cms (set (map #(lang/complex mixture (find mixture %)) a-ids))
+        cm-exprs (map #(lang/subexpr mixture %) cms)]
+    (for [r rules
+          cr (-> r :lhs meta :complexes)
+          :let [cr-expr (lang/subexpr (:lhs r) cr)]
+          cm-expr cm-exprs
+          :let [embs (lang/domain2codomain mixture [cr-expr] [cm-expr])]
+          :when (seq embs)]
+      [r cr embs])))
 
 (defn- positive-update [chamber]
   (let [ram (:ram chamber)
@@ -213,8 +212,8 @@
                           % emb-agent-ids))
       ;; and add <r', c, phi_c> to l(b, y) for all pairs (b, y) in cod(phi_c)
       (update-in [:lift-map]
-                 #(reduce (fn update-lm [lm [a s r c emb]]
-                            (update-in lm [a s] conj {:rule r, :complex c, :emb emb}))
+                 #(reduce (fn update-lm [lm [a-id s r c emb]]
+                            (update-in lm [a-id s] (fnil conj #{}) {:rule r, :complex c, :emb emb}))
                           % cod-sites)))))
 
 (def *max-clashes* 8)
