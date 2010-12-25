@@ -15,6 +15,15 @@
 (defn factorial [n]
   (apply * (take (dec n) (iterate inc 2))))
 
+(defn seq-counter
+  "Calls callback after every n'th entry in sequence is evaluated.
+  Optionally takes another callback to call once the seq is fully evaluated."
+  ([sequence n callback]
+     (map #(do (when (zero? (rem %1 n)) (callback %1)) %2) (iterate inc 1) sequence))
+  ([sequence n callback finished-callback]
+     (drop-last (lazy-cat (seq-counter sequence n callback)
+                          (cons (finished-callback) nil)))))
+
 (defn pre-traverse
   "Traverses a graph depth-first preorder from start, neighbors being a
   function that returns adjacent nodes. Returns a lazy seq of nodes.

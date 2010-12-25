@@ -318,6 +318,18 @@
                        (into {} (for [obs obs-exprs]
                                   [obs (map (comp #(% obs) :obs-expr-counts) result)])))))
 
+(defn simulate-and-report
+  [chamber num-steps & callbacks]
+  (let [ten-percent (quot num-steps 10)
+        result (misc/seq-counter (take num-steps (apply iter chamber callbacks))
+                                 ten-percent
+                                 #(println "Done" (str (* 100 (/ %1 num-steps)) "%"))
+                                 #(println "Finished"))
+        obs-exprs (keys (:obs-expr-counts (first result)))]
+    (SimulationResult. (map :time result)
+                       (into {} (for [obs obs-exprs]
+                                  [obs (map (comp #(% obs) :obs-expr-counts) result)])))))
+
 
 ;;; Using Clojure futures to perform several simulations simultaneously
 
