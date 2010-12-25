@@ -166,13 +166,15 @@
       ;; for all pairs (b, y) in cod(phi_c) remove <r', c, phi_c> from l(b, y)
       (update-in [:lift-map]
                  #(reduce (fn lm-update [lm [a-id s r c emb]]
-                            (update-in lm [a-id s] disj {:rule r, :complex c, :emb emb}))
+                            (update-in lm [a-id s] disj (maps/make-lm-val r c emb)))
                           % cod-mates))
       ;; set l(a, x) = empty set
       (update-in [:lift-map]
                  #(reduce (fn remove-ax-from-lm [lm [a x]]
-                            ;;(assoc-in lm [a x] #{})) ;; what's better?
-                            (update-in lm [a] dissoc x))
+                            (if (and (seq (lm a)) (next ((lm a) x)))
+                              ;;(assoc-in lm [a x] #{})) ;; what's better?
+                              (update-in lm [a] dissoc x)
+                              (dissoc lm a)))
                           % mss))
       (update-in [:lift-map]
                  #(reduce (fn [lm a] (dissoc lm a)) % ras)))))
@@ -213,7 +215,7 @@
       ;; and add <r', c, phi_c> to l(b, y) for all pairs (b, y) in cod(phi_c)
       (update-in [:lift-map]
                  #(reduce (fn update-lm [lm [a-id s r c emb]]
-                            (update-in lm [a-id s] (fnil conj #{}) {:rule r, :complex c, :emb emb}))
+                            (update-in lm [a-id s] (fnil conj #{}) (maps/make-lm-val r c emb)))
                           % cod-sites)))))
 
 (def *max-clashes* 8)

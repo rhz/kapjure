@@ -10,6 +10,8 @@
             [clojure.contrib.generic.math-functions :as math]
             :reload))
 
+;;; TODO more tests!
+
 ;;;; language.clj
 (deftest match-agent-=-pattern
   (is (= (lang/match-agent (lang/make-agent :a {:s "phos"} {}) ; a(s~phos)
@@ -85,10 +87,6 @@
     (is (= (maps/inhibition-map [r1 r2])
            {r1 [], r2 []}))))
 
-;; workaround until finger-trees implement equality
-(defn- cmpstr [a b]
-  (= (println-str a) (println-str b)))
-
 ;;;; language.clj and chamber.clj
 (deftest destroy-agent
   (p/let-rules [r1 "a(x), b(x) -> b(x) @ 1"]
@@ -114,15 +112,15 @@
                 chamber2 (-> (chamber/gen-event chamber1)
                            (update-in [:mixture] lang/with-complexes))
                 chamber3 (chamber/make-chamber [r1] e3 [] [])]
-            (is (cmpstr mm chamber1-mm))
+            (is (= mm chamber1-mm))
             (is (= (-> chamber2 :mixture vals set) (-> e2 vals set)))
             (doseq [c (take 10 (iterate chamber/gen-event chamber3))]
-              (is (cmpstr (:matching-map c) (->> c :mixture lang/with-complexes
-                                                 (maps/matching-and-lift-map [r1])
-                                                 first)))
-              (is (= (:lift-map c) (->> c :mixture lang/with-complexes
-                                        (maps/matching-and-lift-map [r1])
-                                        second))))))))))
+              (is (= (:matching-map c) (->> c
+                                         :mixture lang/with-complexes
+                                         (maps/matching-and-lift-map [r1]) first)))
+              (is (= (:lift-map c) (->> c
+                                     :mixture lang/with-complexes
+                                     (maps/matching-and-lift-map [r1]) second))))))))))
 
 (deftest create-agent
   (p/let-rules [r1 "a(x) -> a(x), b(x) @ 1"]
@@ -133,12 +131,12 @@
                          (update-in [:mixture] lang/with-complexes))]
         (is (= (-> chamber2 :mixture vals set) (-> e2 vals set)))
         (doseq [c (take 10 (iterate chamber/gen-event chamber1))]
-          (is (cmpstr (:matching-map c) (->> c :mixture lang/with-complexes
-                                             (maps/matching-and-lift-map [r1])
-                                             first)))
-          (is (= (:lift-map c) (->> c :mixture lang/with-complexes
-                                    (maps/matching-and-lift-map [r1])
-                                    second))))))))
+          (is (= (:matching-map c) (->> c
+                                     :mixture lang/with-complexes
+                                     (maps/matching-and-lift-map [r1]) first)))
+          (is (= (:lift-map c) (->> c
+                                 :mixture lang/with-complexes
+                                 (maps/matching-and-lift-map [r1]) second))))))))
 
 (deftest modify-state
   (p/let-rules [r1 "a(x~u!1), b(x!1) -> a(x~p!1), b(x!1) @ 1"]
@@ -151,9 +149,11 @@
             chamber3 (chamber/make-chamber [r1] e3 [] [])]
         (is (lang/match-expr (:mixture chamber2) e2))
         (doseq [c (take 10 (iterate chamber/gen-event chamber3))]
-          (is (cmpstr (:matching-map c) (->> c :mixture lang/with-complexes
-                                             (maps/matching-and-lift-map [r1])
-                                             first))))))))
+          (is (= (:matching-map c) (->> c :mixture lang/with-complexes
+                                        (maps/matching-and-lift-map [r1]) first)))
+          (is (= (:lift-map c) (->> c
+                                 :mixture lang/with-complexes
+                                 (maps/matching-and-lift-map [r1]) second))))))))
 
 (deftest bind-agents
   (p/let-rules [r1 "a(x~u), b(x) -> a(x~u!1), b(x!1) @ 1"]
@@ -166,9 +166,12 @@
             chamber3 (chamber/make-chamber [r1] e3 [] [])]
         (is (lang/match-expr (:mixture chamber2) e2))
         (doseq [c (take 10 (iterate chamber/gen-event chamber3))]
-          (is (cmpstr (:matching-map c) (->> c :mixture lang/with-complexes
-                                             (maps/matching-and-lift-map [r1])
-                                             first))))))))
+          (is (= (:matching-map c) (->> c
+                                     :mixture lang/with-complexes
+                                     (maps/matching-and-lift-map [r1]) first)))
+          (is (= (:lift-map c) (->> c
+                                 :mixture lang/with-complexes
+                                 (maps/matching-and-lift-map [r1]) second))))))))
 
 (deftest unbind-agents
   (p/let-rules [r1 "a(x~p!1), b(x!1) -> a(x~p), b(x) @ 1"]
@@ -181,9 +184,12 @@
             chamber3 (chamber/make-chamber [r1] e3 [] [])]
         (is (lang/match-expr (:mixture chamber2) e2))
         (doseq [c (take 10 (iterate chamber/gen-event chamber3))]
-          (is (cmpstr (:matching-map c) (->> c :mixture lang/with-complexes
-                                             (maps/matching-and-lift-map [r1])
-                                             first))))))))
+          (is (= (:matching-map c) (->> c
+                                     :mixture lang/with-complexes
+                                     (maps/matching-and-lift-map [r1]) first)))
+          (is (= (:lift-map c) (->> c
+                                 :mixture lang/with-complexes
+                                 (maps/matching-and-lift-map [r1]) second))))))))
 
 ;;;; chamber.clj
 (deftest simulation-isomerization

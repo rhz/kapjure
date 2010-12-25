@@ -143,6 +143,11 @@
                 (= c1 c2) (compare (vec (sort-by > (vals m1))) (vec (sort-by > (vals m2))))
                 (> c1 c2) 1)))))
 
+(defrecord LiftMapValue [rule complex emb])
+
+(defn make-lm-val [rule complex emb]
+  (LiftMapValue. rule complex emb))
+
 (defn matching-and-lift-map
   "Compute the matching map and lift map. For reference, see
   'Scalable Simulation of Cellular Signaling Networks', V. Danos, J. Feret,
@@ -166,7 +171,7 @@
           ;;{r {cr (apply ft/counted-sorted-set-by map-compare matchings)}}
           (for [emb embs
                 [_ [cod-id cod-site]] emb]
-            {cod-id {cod-site #{{:rule r, :complex cr, :emb emb}}}})]) ;; => lift-map
+            {cod-id {cod-site #{(make-lm-val r cr emb)}}})]) ;; => lift-map
 
     (apply map vector) ; put what belongs to the matching-map together in a vector ...
     ;; ... and what belongs to the lift-map together in another vector
