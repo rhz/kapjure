@@ -6,7 +6,8 @@
             [kappa.language :as lang]
             [clojure.set :as set]
             [clojure.contrib.math :as m]
-            [clojure.contrib.generic.math-functions :as math]))
+            [clojure.contrib.generic.math-functions :as math])
+  (:import java.util.Date))
 
 
 (defrecord DeterministicRateChamber [rules mixture time event-cnt clash-cnt volume stochastic-cs
@@ -323,19 +324,20 @@
   (let [ten-percent (quot num-steps 10)
         result (misc/seq-counter (take num-steps (apply iter chamber callbacks))
                                  ten-percent
-                                 #(println "Done" (str (* 100 (/ %1 num-steps)) "%"))
+                                 #(println "Done" (str (* 100.0 (/ %1 num-steps)) "% -")
+                                           (.toString (Date.)))
                                  #(println "Finished"))
         obs-exprs (keys (:obs-expr-counts (first result)))]
     (SimulationResult. (map :time result)
                        (into {} (for [obs obs-exprs]
                                   [obs (map (comp #(% obs) :obs-expr-counts) result)])))))
 
-
 ;;; Using Clojure futures to perform several simulations simultaneously
 
 (defn psimulate
   "Repeateadly call the simulate function in different threads."
   [chamber num-steps num-simulations & callbacks]
+  ;; TODO use a fixed-size thread-pool
   (map deref
        (doall (repeatedly num-simulations
                           #(future (doall (apply simulate num-steps chamber callbacks)))))))

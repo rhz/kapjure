@@ -2,7 +2,10 @@
   {:doc "Functions to read and write Kappa-related data."
    :author "Ricardo Honorato-Zimmer"}
   (:require [kappa.language :as lang]
-            [clojure.contrib.duck-streams :as duck-streams]))
+            [kappa.chamber :as c]
+            [clojure.contrib.io :as io]
+            [clojure.contrib.duck-streams :as duck-streams])
+  (:import java.util.Date))
 
 (defn- nth-multiple [n coll]
   (map first (partition-all n coll)))
@@ -33,4 +36,24 @@
                       (map #(nth-multiple rpd %)
                            (vals (:obs-expr-counts result)))))
       (duck-streams/write-lines output))))
+
+(defn simulate-write-and-report
+  [output chamber num-steps & callbacks]
+  (with-open [outfile (io/writer output)]
+    (let [obs-exprs (keys (c/get-obs-expr-counts chamber))
+          n (quot num-steps 10)]
+      (.write outfile (apply str (interpose \tab (cons "time"
+                                                       (map lang/expr-str obs-exprs)))))
+      (loop [c chamber
+             i 1]
+        (.write outfile "\n")
+        (.write outfile (apply str
+                               (interpose \tab (cons (:time c)
+                                                     (map (c/get-obs-expr-counts c) obs-exprs)))))
+        (when (zero? (rem i n))
+          (println "Done" (str (* 100.0 (/ i num-steps)) "% -")
+                   (.toString (Date.))))
+        (if (< i num-steps)
+          (recur (c/gen-event c) (inc i))
+          (println "Finished"))))))
 
