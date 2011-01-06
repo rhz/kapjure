@@ -19,16 +19,13 @@
   [chart filename & options]
   (apply incanter/save chart filename options))
 
-(defn- nth-multiple [n coll]
-  (map first (partition-all n coll)))
-
 (defn plot-result
   "Plot the results of a simulation (as returned by kappa.chamber/psimulate)."
   [result & {:keys [title rpd labels] :or {title "" rpd 1}}]
   (let [{time-steps :time obs-expr-counts :obs-expr-counts} result
-        time-steps (nth-multiple rpd time-steps)
+        time-steps (take-nth rpd time-steps)
         obs-expr-counts (into {} (for [[obs counts] obs-expr-counts]
-                                   [obs (nth-multiple rpd counts)]))
+                                   [obs (take-nth rpd counts)]))
         obs-exprs (keys obs-expr-counts)
         labels (or labels
                    (into {} (for [obs obs-exprs]
@@ -97,7 +94,7 @@
   in sim-results for all time steps."
   [sim-results & {:keys [rpd] :or {rpd 1}}]
   (let [time-steps (distinct
-                    (apply concat (map (comp (partial nth-multiple rpd) :time) sim-results)))]
+                    (apply concat (map (comp (partial take-nth rpd) :time) sim-results)))]
     (get-results sim-results time-steps)))
 
 (defn- mean [& xs]
@@ -107,7 +104,7 @@
   "Interpolate and then average the counts for the observed expressions
   in sim-results for the average of each time step."
   [sim-results & {:keys [rpd] :or {rpd 1}}]
-  (let [time-steps (apply map mean (map (comp (partial nth-multiple rpd) :time) sim-results))]
+  (let [time-steps (apply map mean (map (comp (partial take-nth rpd) :time) sim-results))]
     (get-results sim-results time-steps)))
 
 (defn get-most-repr-result
@@ -138,4 +135,10 @@
     ;; TODO add the error bars to this plot
     ;; probably something like (doto (plot-result ...) (add-error-bar ...))
     (plot-result {:time time-steps :obs-expr-counts counts-mean})))
+
+
+;; TODO
+(defn plot-table-file
+  [filename & {:keys [rpd] :or {rpd 1}}]
+  nil)
 
