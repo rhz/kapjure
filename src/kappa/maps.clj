@@ -31,11 +31,10 @@
                                 (and (= b1 :semi-link) (number? b2)) [site b2]
                                 (and (= b2 :semi-link) (number? b1)) [site b1]
                                 (and (number? b1) (number? b2))
-                                (if-let [lhs-agent (lang/get-lhs-agent b2 e1-e2)]
-                                  (if (= (key lhs-agent) b1)
+                                (let [lhs-id (lang/get-lhs-id b2 e1-e2)]
+                                  (if (= lhs-id b1)
                                     [site b1]
-                                    (c/raise :type :unmixable-agents))
-                                  (c/raise :type :unmixable-agents))
+                                    (c/raise :type :unmixable-agents)))
                                 :else (c/raise :type :unmixable-agents))))]
       (lang/make-agent name states bindings))
     (handle :unmixable-agents nil)))
@@ -45,7 +44,7 @@
   [e1 e2]
   (let [[e1-e2 & left] (lang/pair-exprs e1 e2)]
     (loop [agent-pairs e1-e2
-           ids-map (zipmap (apply concat (map keys left)) (repeatedly #(misc/counter)))
+           ids-map (zipmap (apply concat (map keys left)) (repeatedly #(lang/get-unique-agent-id)))
            result (into {} (apply concat
                                   (map (partial map (fn [[id a]] [(ids-map id) a])) left)))]
       (if (empty? agent-pairs)
@@ -56,14 +55,16 @@
         (let [[oae1 oae2] (first agent-pairs)]
           (if-let [mixed-agent (mix (val oae1) (val oae2) e1-e2)]
             ;; mixable agents
-            (let [id (misc/counter)]
+            (let [id (lang/get-unique-agent-id)]
               (recur (rest agent-pairs)
                      (into ids-map [{(key oae1) id} {(key oae2) id}])
                      (conj result {id mixed-agent})))
 
             ;; unmixable agents
-            (let [id1 (misc/counter), new-oae1 {id1 (val oae1)},
-                  id2 (misc/counter), new-oae2 {id2 (val oae2)}]
+            (let [id1 (lang/get-unique-agent-id)
+                  id2 (lang/get-unique-agent-id)
+                  new-oae1 {id1 (val oae1)}
+                  new-oae2 {id2 (val oae2)}]
               (recur (rest agent-pairs)
                      (into ids-map [{(key oae1) id1} {(key oae2) id2}])
                      (into result [new-oae1 new-oae2])))))))))
@@ -90,8 +91,7 @@
                    pa-site))]
     ;; if at least one of the sites in the intersection is a site modified by r
     ;; then r1 activates/inhibits r2
-    (some dom (for [[[id _] s] mss]
-                [id s])))) ;; TODO perhaps I should store mss using just the agent's id
+    (some dom mss)))
 
 (defn activates?
   "Tells whether r1 activates r2."

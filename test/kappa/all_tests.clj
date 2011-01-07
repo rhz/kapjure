@@ -6,7 +6,7 @@
             [kappa.maps :as maps]
             [kappa.misc :as misc]
             [kappa.parser :as p]
-            [kappa.chamber :as chamber]
+            [kappa.chamber :as c]
             [clojure.contrib.generic.math-functions :as math]
             :reload))
 
@@ -107,14 +107,14 @@
           ;;(is (= mm {r1 {#{a-r1} [{a-r1 a-e1}], #{b-r1} [{b-r1 b-e1}]}}))
           ;;(is (= lf {a-e1 {"x" [{:rule r1, :complex #{a-r1}, :codomain [[a-e1 "x"]]}]},
           ;;           b-e1 {"x" [{:rule r1, :complex #{b-r1}, :codomain [[b-e1 "x"]]}]}}))
-          (let [chamber1 (chamber/make-chamber [r1] e1 [] [])
+          (let [chamber1 (c/make-chamber [r1] e1 [] [])
                 chamber1-mm (:matching-map chamber1)
-                chamber2 (-> (chamber/gen-event chamber1)
+                chamber2 (-> (c/gen-event chamber1)
                            (update-in [:mixture] lang/with-complexes))
-                chamber3 (chamber/make-chamber [r1] e3 [] [])]
+                chamber3 (c/make-chamber [r1] e3 [] [])]
             (is (= mm chamber1-mm))
             (is (= (-> chamber2 :mixture vals set) (-> e2 vals set)))
-            (doseq [c (take 10 (iterate chamber/gen-event chamber3))]
+            (doseq [c (take 10 (iterate c/gen-event chamber3))]
               (is (= (:matching-map c) (->> c
                                          :mixture lang/with-complexes
                                          (maps/matching-and-lift-map [r1]) first)))
@@ -126,11 +126,11 @@
   (p/let-rules [r1 "a(x) -> a(x), b(x) @ 1"]
     (p/let-exprs [e1 "a(x)"
                   e2 "a(x), b(x)"]
-      (let [chamber1 (chamber/make-chamber [r1] e1 [] [])
-            chamber2 (-> (chamber/gen-event chamber1)
+      (let [chamber1 (c/make-chamber [r1] e1 [] [])
+            chamber2 (-> (c/gen-event chamber1)
                          (update-in [:mixture] lang/with-complexes))]
         (is (= (-> chamber2 :mixture vals set) (-> e2 vals set)))
-        (doseq [c (take 10 (iterate chamber/gen-event chamber1))]
+        (doseq [c (take 10 (iterate c/gen-event chamber1))]
           (is (= (:matching-map c) (->> c
                                      :mixture lang/with-complexes
                                      (maps/matching-and-lift-map [r1]) first)))
@@ -143,12 +143,12 @@
     (p/let-exprs [e1 "a(x~u!1), b(x!1)"
                   e2 "a(x~p!1), b(x!1)"
                   e3 "10 * (a(x~u!1), b(x!1))"]
-      (let [chamber1 (chamber/make-chamber [r1] e1 [] [])
-            chamber2 (-> (chamber/gen-event chamber1)
+      (let [chamber1 (c/make-chamber [r1] e1 [] [])
+            chamber2 (-> (c/gen-event chamber1)
                        (update-in [:mixture] lang/with-complexes))
-            chamber3 (chamber/make-chamber [r1] e3 [] [])]
+            chamber3 (c/make-chamber [r1] e3 [] [])]
         (is (lang/match-expr (:mixture chamber2) e2))
-        (doseq [c (take 10 (iterate chamber/gen-event chamber3))]
+        (doseq [c (take 10 (iterate c/gen-event chamber3))]
           (is (= (:matching-map c) (->> c :mixture lang/with-complexes
                                         (maps/matching-and-lift-map [r1]) first)))
           (is (= (:lift-map c) (->> c
@@ -160,12 +160,12 @@
     (p/let-exprs [e1 "a(x~u), b(x)"
                   e2 "a(x~u!1), b(x!1)"
                   e3 "10 * a(x~u), 10 * b(x)"]
-      (let [chamber1 (chamber/make-chamber [r1] e1 [] [])
-            chamber2 (-> (chamber/gen-event chamber1)
+      (let [chamber1 (c/make-chamber [r1] e1 [] [])
+            chamber2 (-> (c/gen-event chamber1)
                        (update-in [:mixture] lang/with-complexes))
-            chamber3 (chamber/make-chamber [r1] e3 [] [])]
+            chamber3 (c/make-chamber [r1] e3 [] [])]
         (is (lang/match-expr (:mixture chamber2) e2))
-        (doseq [c (take 10 (iterate chamber/gen-event chamber3))]
+        (doseq [c (take 10 (iterate c/gen-event chamber3))]
           (is (= (:matching-map c) (->> c
                                      :mixture lang/with-complexes
                                      (maps/matching-and-lift-map [r1]) first)))
@@ -178,12 +178,12 @@
     (p/let-exprs [e1 "a(x~p!1), b(x!1)"
                   e2 "a(x~p), b(x)"
                   e3 "10 * (a(x~p!1), b(x!1))"]
-      (let [chamber1 (chamber/make-chamber [r1] e1 [] [])
-            chamber2 (-> (chamber/gen-event chamber1)
+      (let [chamber1 (c/make-chamber [r1] e1 [] [])
+            chamber2 (-> (c/gen-event chamber1)
                        (update-in [:mixture] lang/with-complexes))
-            chamber3 (chamber/make-chamber [r1] e3 [] [])]
+            chamber3 (c/make-chamber [r1] e3 [] [])]
         (is (lang/match-expr (:mixture chamber2) e2))
-        (doseq [c (take 10 (iterate chamber/gen-event chamber3))]
+        (doseq [c (take 10 (iterate c/gen-event chamber3))]
           (is (= (:matching-map c) (->> c
                                      :mixture lang/with-complexes
                                      (maps/matching-and-lift-map [r1]) first)))
@@ -195,8 +195,8 @@
 (deftest simulation-isomerization
   (p/let-rules [r1 "A(x) -> B(x) @ 1"]
     (p/let-exprs [e1 "1000 * A(x)"]
-      (let [initial-chamber (chamber/make-chamber [r1] e1 [] [])
-            sim (take 101 (iterate chamber/gen-event initial-chamber))
+      (let [initial-chamber (c/make-chamber [r1] e1 [] [])
+            sim (take 101 (iterate c/gen-event initial-chamber))
             A-agents-left (filter (fn [[_ {name :name}]]
                                     (= name "A"))
                                   (:mixture (last sim)))]
@@ -211,17 +211,18 @@
   (p/def-exprs
     e1 "E(x), E(x), S(x), S(x), S(x), S(x)"
     e2 "E(x), E(x!1), S(x!1), S(x), S(x), S(x)"
-    obs1 "P(x)", obs2 "S(x)")
+    obs1 "P(x)"
+    obs2 "S(x)")
 
-  (let [initial-chamber (chamber/make-chamber [r1 r1-op r2] e1 [obs1 obs2] [])]
-    (doall (take 10 (iterate chamber/gen-event initial-chamber))))
+  (let [initial-chamber (c/make-chamber [r1 r1-op r2] e1 [obs1 obs2] [])]
+    (doall (take 10 (iterate c/gen-event initial-chamber))))
 
-  (let [initial-chamber (chamber/make-chamber [r1 r1-op r2] e1 [obs1 obs2] [])
-        simulation (take 10 (iterate chamber/gen-event initial-chamber))]
+  (let [initial-chamber (c/make-chamber [r1 r1-op r2] e1 [obs1 obs2] [])
+        simulation (take 10 (iterate c/gen-event initial-chamber))]
     (doseq [[n step] (map vector (iterate inc 0) simulation)]
       (println "Iteration" n "=> time:" (:time step) ", solution:" (:mixture step))))
 
-  (let [initial-chamber (chamber/make-chamber [r1 r1-op r2] e1 [obs1 obs2] [])
-        simulation (take 10 (iterate chamber/gen-event initial-chamber))]
-    (println (chamber/get-obs-expr-counts simulation))))
+  (let [initial-chamber (c/make-chamber [r1 r1-op r2] e1 [obs1 obs2] [])
+        simulation (take 10 (iterate c/gen-event initial-chamber))]
+    (println (c/get-sim-counts simulation))))
 

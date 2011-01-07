@@ -149,8 +149,12 @@
         ras (:removed-agents m)
         mss (:modified-sites m)
         r-c-embs (apply set/union (concat
-                                   (for [[ma ms] mss]
-                                     ((lift-map ma) ms))
+                                   (for [[ma ms] mss
+                                         :let [lm (lift-map ma)]]
+                                     ;; lm will be nil if ma has been created and
+                                     ;; modified by the executed rule
+                                     ;; FIXME is there a better way to handle this?
+                                     (if (seq lm) (lm ms) #{}))
                                    (for [ra ras]
                                      (apply set/union (vals (lift-map ra))))))
         cod-mates (for [{r :rule, c :complex, emb :emb} r-c-embs
@@ -167,13 +171,15 @@
       ;; for all pairs (b, y) in cod(phi_c) remove <r', c, phi_c> from l(b, y)
       (update-in [:lift-map]
                  #(reduce (fn lm-update [lm [a-id s r c emb]]
-                            (update-in lm [a-id s] disj (maps/make-lm-val r c emb)))
+                            (let [new-lm (update-in lm [a-id s] disj (maps/make-lm-val r c emb))]
+                              (if (every? empty? (vals (new-lm a-id)))
+                                (dissoc new-lm a-id)
+                                new-lm)))
                           % cod-mates))
       ;; set l(a, x) = empty set
       (update-in [:lift-map]
                  #(reduce (fn remove-ax-from-lm [lm [a x]]
                             (if (and (seq (lm a)) (next ((lm a) x)))
-                              ;;(assoc-in lm [a x] #{})) ;; what's better?
                               (update-in lm [a] dissoc x)
                               (dissoc lm a)))
                           % mss))
@@ -181,8 +187,8 @@
                  #(reduce (fn [lm a] (dissoc lm a)) % ras)))))
 
 (defn- get-embeddings [mixture a-ids & rules]
-  (let [cms (set (map #(lang/complex mixture (find mixture %)) a-ids))
-        cm-exprs (map #(lang/subexpr mixture %) cms)]
+  (let [cms (set (map (partial lang/complex mixture) a-ids))
+        cm-exprs (map (partial lang/subexpr mixture) cms)]
     (for [r rules
           cr (-> r :lhs meta :complexes)
           :let [cr-expr (lang/subexpr (:lhs r) cr)]
@@ -246,7 +252,8 @@
         ((:action r) m)
         ((apply comp identity (:callbacks chamber)))
         ((apply comp identity callbacks))
-        negative-update positive-update
+        negative-update
+        positive-update
         (assoc :clash-cnt 0)
         (update-in [:time] + dt)
         (update-in [:event-cnt] inc)
@@ -340,17 +347,5 @@
   ;; TODO use a fixed-size thread-pool
   (map deref
        (doall (repeatedly num-simulations
-                          #(future (doall (apply simulate num-steps chamber callbacks)))))))
-
-
-;; TODO reachable-complexes and reachable-reactions
-(defn reachable-complexes
-  "Returns a lazy seq of all the complexes reachable by the system."
-  [rule-set initial-state]
-  nil)
-
-(defn reachable-reactions
-  "Returns a lazy seq of all the rule instances (i.e., reactions) reachable by the system."
-  [rule-set initial-state]
-  nil)
+                          #(future (doall (apply simulate chamber num-steps callbacks)))))))
 

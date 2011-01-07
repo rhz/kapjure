@@ -156,7 +156,7 @@
 (defn- make-expr [agents-and-subexprs]
   (let [[agents subexprs] ((juxt filter remove) lang/agent? agents-and-subexprs)
         ;; expression with bond labels instead of neighbour id
-        e1 (zipmap (repeatedly misc/counter) agents)
+        e1 (zipmap (repeatedly lang/get-unique-agent-id) agents)
         nbs (get-neighbours e1)
         subexpr-complexes (map (comp :complexes meta) subexprs)]
     (with-meta (apply merge (replace-bindings e1 nbs) subexprs)
@@ -165,7 +165,7 @@
 (defn- rep-expr [factor subexpr] ;; replicate expression
   (let [agents (vals subexpr), template-ids (keys subexpr),
         complexes (-> subexpr meta :complexes),
-        new-ids (repeatedly (or factor 1) #(repeatedly (count agents) misc/counter)),
+        new-ids (repeatedly (or factor 1) #(repeatedly (count agents) lang/get-unique-agent-id)),
         smaps (map #(zipmap template-ids %) new-ids)] ;; substitution maps
     (vector
      (with-meta (apply merge

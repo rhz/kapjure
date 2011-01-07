@@ -9,9 +9,6 @@
 
 (def xor (comp not =))
 
-(let [cnt (atom 0)]
-  (defn counter [] (swap! cnt inc)))
-
 (defn factorial [n]
   (apply * (take (dec n) (iterate inc 2))))
 
