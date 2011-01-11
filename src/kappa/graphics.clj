@@ -3,6 +3,7 @@
    :author "Ricardo Honorato-Zimmer"}
   (:require [kappa.language :as lang]
             [kappa.chamber :as chamber]
+            [kappa.io :as io]
             [clojure.contrib.math :as m]
             [clojure.data.finger-tree :as ft]
             [incanter.core :as incanter]
@@ -112,17 +113,18 @@
   in sim-results that is most similar to the interpolated result."
   [sim-results & {:keys [norm rpd] :or {norm :supremum rpd 1}}]
   (let [results (get-all-results sim-results :rpd rpd)
-        ;; FIXME (map vector results) don't make sense
-        ;; as results is a map {:time ... :obs-expr-counts ...}
-        results-map (into {} (map vector results))
-        norm (fn [x]
-               (case norm
-                 :supremum (fn [y] (m/expt (- x y) 2)))) ; FIXME is this the supremum norm?
-        error (map #(map (norm (results-map %)) %)
-                   ;; FIXME next form returns a seq of maps, not seqs
-                   (map :obs-expr-counts sim-results))
-        error-to-sim (zipmap (map (partial apply +) error) sim-results)]
-    (error-to-sim (apply min (keys error-to-sim)))))
+        resmap (into {} (for [obs (keys (:obs-expr-counts results))]
+                          [obs (zipmap (:time results) ((:obs-expr-counts results) obs))]))
+        norm (case norm
+               :supremum (fn [x y] (m/expt (- x y) 2))) ;; is this the supremum norm?
+        error (for [res sim-results]
+                (into {} (for [obs (keys (:obs-expr-counts res))]
+                           [obs (apply + (map #(norm ((resmap obs) %1) %2)
+                                              (:time res) ((:obs-expr-counts res) obs)))])))
+        cumulative-error (for [sim-error error]
+                           (apply + (vals sim-error)))
+        ce2sim (zipmap cumulative-error sim-results)]
+    (ce2sim (apply min (keys ce2sim)))))
 
 (defn mean-plot
   "Plot the average behaviour of the simulations in sim-results."
@@ -140,5 +142,6 @@
 ;; TODO
 (defn plot-table-file
   [filename & {:keys [rpd] :or {rpd 1}}]
-  nil)
+  (let [table (io/read-table filename)]
+    nil))
 
