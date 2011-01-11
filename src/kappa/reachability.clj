@@ -70,7 +70,7 @@
                                             [c (into {} (for [[ar-id am] m]
                                                           [ar-id (key am)]))])))
                                 :mixture
-                                (lang/with-complexes))
+                                lang/with-complexes)
               product-cs (map (partial lang/subexpr products-expr)
                               (-> products-expr meta :complexes))
               new-cs (remove #(some (partial lang/match-expr %) cs) product-cs)]
@@ -105,9 +105,10 @@
         matching (map #(zipmap (keys m) %)
                       (apply comb/cartesian-product (vals m)))
         :when (= (count matching) (-> r :lhs meta :complexes count))
-        :let [reactants-expr (into {} (for [[_ m] matching
-                                            [_ a] m]
-                                        a))
+        :let [reactants-expr (-> (into {} (for [[_ m] matching
+                                                [_ a] m]
+                                            a))
+                                 lang/with-complexes)
               products-expr (-> ((:action r)
                                  {:mixture reactants-expr}
                                  (into {} (for [[c m] matching]

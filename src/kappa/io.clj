@@ -7,9 +7,6 @@
             [clojure.contrib.duck-streams :as duck-streams])
   (:import java.util.Date))
 
-(defn- nth-multiple [n coll]
-  (map first (partition-all n coll)))
-
 (defn map2dot [output ram rim]
   (->> (concat ["digraph G {"
                 "  node [shape=box];"]
@@ -32,10 +29,14 @@
     (->> (cons (apply str (interpose \tab (cons "time" obs-exprs)))
                (apply map (fn [& xs]
                             (apply str (interpose \tab xs)))
-                      (nth-multiple rpd (:time result))
-                      (map #(nth-multiple rpd %)
+                      (take-nth rpd (:time result))
+                      (map (partial take-nth rpd)
                            (vals (:obs-expr-counts result)))))
-      (duck-streams/write-lines output))))
+         (duck-streams/write-lines output))))
+
+;; TODO
+(defn read-table [input]
+  nil)
 
 (defn simulate-write-and-report
   [output chamber num-steps & callbacks]

@@ -347,5 +347,6 @@
   ;; TODO use a fixed-size thread-pool
   (map deref
        (doall (repeatedly num-simulations
-                          #(future (doall (apply simulate chamber num-steps callbacks)))))))
+                          #(future (-> (apply simulate chamber num-steps callbacks)
+                                       (update-in [:time] doall)))))))
 
