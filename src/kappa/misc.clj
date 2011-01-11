@@ -2,6 +2,10 @@
   {:doc "Useful functions that doesn't fit elsewhere."
    :author "Ricardo Honorato-Zimmer"})
 
+(defmacro forcat [seq-exprs body-expr]
+  `(apply concat
+          (for ~seq-exprs ~body-expr)))
+
 (defn indexed [s] ; this isn't used anywhere: candidate to be deleted
   (map vector (iterate inc 0) s))
 
