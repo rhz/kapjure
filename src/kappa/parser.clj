@@ -23,18 +23,6 @@
 
 (h/defrule- <line-break> (h/rep (h/+ <nl> <return>)))
 
-(h/defrule- <comment>
-  "Consumes a comment."
-  {:success "When there's a # followed by any string and an optional line break."
-   :product "A namespace-qualified :comment keyword."}
-  (h/label "a comment"
-           (h/chook ::comment (h/cat (h/lit \#) (h/rep* (h/+ h/<ascii-alphanumeric> <space>))
-                                     (h/opt <line-break>)))))
-
-(h/defrule- <ws>
-  "Consumes any amount of whitespace characters and returns a namespace-qualified :ws keyword."
-  (h/chook ::ws (h/rep (h/+ <space> <tab> <line-break> <comment>))))
-
 (h/defmaker- concat-nested-rules
   {:product "A string containing all the characters consumed by the given rules put in a `h/cat`."
    :success "When the concatenated rules succeed and they all return only seqs of chars (which can be nested)."}
@@ -45,6 +33,22 @@
 (h/defrule- <alphanumeric-string>
   (h/label "an alphanumeric string"
            (concat-nested-rules (h/rep h/<ascii-alphanumeric>))))
+
+(h/defrule- <string>
+  (h/rep* (apply h/+ <alphanumeric-string>
+                 (map h/lit [\- \_ \. \, \: \; \? \! \( \) \[ \] \{ \} \* \^ \+
+                             \/ \& \% \$ \# \@ \| \\ \º \ª \· \| \< \> \~ \space \tab]))))
+
+(h/defrule- <comment>
+  "Consumes a comment."
+  {:success "When there's a # followed by any string and an optional line break."
+   :product "A namespace-qualified :comment keyword."}
+  (h/label "a comment"
+           (h/chook ::comment (h/cat (h/lit \#) <string> (h/opt <line-break>)))))
+
+(h/defrule- <ws>
+  "Consumes any amount of whitespace characters and returns a namespace-qualified :ws keyword."
+  (h/chook ::ws (h/rep (h/+ <space> <tab> <line-break> <comment>))))
 
 ;;; Numbers
 (h/defrule- <number-sign>
@@ -196,11 +200,6 @@
     "unidirectional arrow" "->" ::unidirectional-rule
     "bidirectional arrow" "<->" ::bidirectional-rule))
 
-(h/defrule- <string>
-  (h/rep* (apply h/+ <alphanumeric-string>
-                 (map h/lit [\- \_ \. \, \: \; \? \! \( \) \[ \] \{ \} \* \^ \+
-                             \/ \& \% \$ \# \@ \| \\ \º \ª \· \| \< \> \~]))))
-
 (h/defrule- <rule>
   "Consumes a Kappa rule."
   {:no-memoize? true}
@@ -209,7 +208,7 @@
           arrow (circumfix-ws <arrow>)
           rhs <expr>
           rate (h/prefix (circumfix-ws (h/lit \@)) <number>)
-          second-rate (h/opt (h/prefix (circumfix-ws (h/lit \,)) <number>))]
+          second-rate (h/opt (h/prefix (h/lex (circumfix-ws (h/lit \,))) <number>))]
     (if (= arrow ::unidirectional-rule)
       (lang/make-rule name lhs rhs rate)
       [(lang/make-rule name lhs rhs rate)
@@ -241,18 +240,20 @@
               {:var [[var-name expr]]})))
 
 (defn- make-system [v]
-  (let [[init-obs-and-var rules] ((juxt filter remove) map? v)
-        {:keys [init obs-exprs obs-rules vars]} (-> (merge-with concat init-obs-and-var)
+  (let [[rules init-obs-var] ((juxt filter remove) #(or (lang/rule? %) (vector? %)) v)
+        {:keys [init obs-exprs obs-rules vars]} (-> (apply merge-with concat init-obs-var)
                                                     (update-in [:vars] (partial into {})))]
-    (chamber/make-chamber (apply concat rules) (apply merge init) 1
-                          (map vars obs-exprs) obs-rules)))
+    (chamber/make-chamber (apply concat (filter lang/rule? rules) (remove lang/rule? rules))
+                          (apply lang/mix-exprs init)
+                          (map vars obs-exprs)
+                          obs-rules)))
 
 (h/defrule- <system>
   "Consumes a Kappa system specification."
   {:no-memoize? true}
   (h/hook make-system
-          (h/separated-rep (circumfix-ws <line-break>)
-                           (h/+ <rule> <init-line> <obs-line> <var-line>))))
+          (circumfix-ws (h/separated-rep <ws> ;; FIXME problem with comments
+                                         (h/+ <rule> <init-line> <obs-line> <var-line>)))))
 
 ;;; Parser fns... thanks do-template
 (do-template [fn-name rule label]
