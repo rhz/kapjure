@@ -459,8 +459,7 @@
 (defn count-automorphisms [expr]
   (misc/factorial 
    (reduce + 1
-           (for [[c1 c2] (comb/combinations (map (partial subexpr expr)
-                                                 (-> expr meta :complexes)) 2)]
+           (for [[c1 c2] (comb/combinations (complexes expr) 2)]
              (if (match-expr c1 c2) 1 0)))))
 
 ;;; Ctor

@@ -11,15 +11,59 @@
 
 ;;;; PRISM
 
+(defn prism-encode [s]
+  (s/replace s #"[(),~!]" "_"))
+
+(defn prism-module [c initial-state guards]
+  (let [name (prism-encode (lang/expr-str c))
+        qty (count (filter (partial lang/match-expr c) initial-state))]
+    (concat [(str "module " name)
+             (str "  " name " : [0..N] init " qty ";")]
+            (for [[r g] guards
+                  :when (some (partial lang/match-expr c) (lang/complexes (:lhs r)))]
+              (str "  [" g "] " name ">0 -> " name " : (" name "'=" name "-1);"))
+            (for [[r g] guards
+                  :when (some (partial lang/match-expr c) (lang/complexes (:rhs r)))]
+              (str "  [" g "] " name "<N -> 1 : (" name "'=" name "+1);"))
+            ["endmodule"])))
+
 (defn prism-model
   "Convert a kappa model into a PRISM model (for model-checking)"
-  [rule-set initial-state & options]
-  (let [complexes (r/reachable-complexes rule-set initial-state)
-        reactions (r/get-reactions rule-set initial-state)
-        module-names (for [complex complexes]
-                       (apply str (interpose "-" (map :name complex))))]
-    (doseq [m module-names]
-      (println m))))
+  [rules initial-state & options]
+  (let [complexes (r/reachable-complexes rules initial-state)
+        reactions (r/get-reactions rules initial-state)
+        guards (into {} (for [r reactions]
+                          [r (str (-> r :lhs lang/expr-str prism-encode) "_"
+                                  (-> r :rhs lang/expr-str prism-encode))]))]
+    {:model (concat ["ctmc"
+                     "const int N;"]
+                    (map #(prism-module % initial-state guards) complexes)
+                    ["module base_rates"]
+                    (for [[r g] guards]
+                      (str "[" g "] true -> " (:rate r) " : true;"))
+                    ["endmodule"])
+     :c-names (zipmap complexes (map (comp prism-encode lang/expr-str) complexes))}))
+
+(defn add-reward [prism-model reward]
+  (update-in prism-model [:model] concat [reward]))
+
+(defn add-property [prism-model prop]
+  (update-in prism-model [:properties] concat [prop]))
+
+(defn set-N [prism-model N]
+  (assoc prism-model :N N))
+
+(defn prism-check [prism-model]
+  (when (not (:N prism-model))
+    (throw (Exception. "set-N must be called on prism-model before calling prism-check")))
+  (let [model-file (java.io.File/createTempFile "prism-model-" ".sm")
+        property-file (java.io.File/createTempFile "prism-model-" ".csl")]
+    (ds/write-lines model-file (:model prism-model))
+    (ds/write-lines property-file (:properties prism-model))
+    (-> (sh-out/sh "prism" (.getPath model-file) (.getPath property-file)
+                   "-fixdl" (str "-const 'N=" (:N prism-model) "'"))
+        (s/split-lines))))
+
 
 ;;;; NuSMV
 

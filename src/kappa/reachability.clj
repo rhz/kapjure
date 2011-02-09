@@ -8,11 +8,11 @@
 
 ;;; Common fns
 
-(defn- distinct-exprs [es acc]
+(defn distinct-exprs [es acc]
   (if (empty? es)
     nil
     (let [[c & rem-es] es]
-      (if (some #{c} acc)
+      (if (some (partial lang/match-expr c) acc)
         (distinct-exprs rem-es acc)
         (cons c (lazy-seq
                   (distinct-exprs rem-es (cons c acc))))))))
@@ -46,7 +46,7 @@
 (defn- matching-map [rules expr]
   (->> (for [r rules
              cr (-> r :lhs meta :complexes)
-             cm-expr (map (partial lang/subexpr expr) (-> expr meta :complexes))
+             cm-expr (lang/complexes expr)
              :let [cr-expr (lang/subexpr (:lhs r) cr)
                    matching (lang/match-expr cr-expr cm-expr)]
              :when matching]
@@ -71,8 +71,7 @@
                                                           [ar-id (key am)]))])))
                                 :mixture
                                 lang/with-complexes)
-              product-cs (map (partial lang/subexpr products-expr)
-                              (-> products-expr meta :complexes))
+              product-cs (lang/complexes products-expr)
               new-cs (remove #(some (partial lang/match-expr %) cs) product-cs)]
         :when (seq new-cs)]
     [(map new-ids new-cs) r]))
@@ -90,8 +89,7 @@
 (defn reachable-complexes
   "Returns a lazy seq of all the complexes reachable by the system."
   [rules expr]
-  (let [cs (map (partial lang/subexpr expr)
-                (-> expr meta :complexes))
+  (let [cs (lang/complexes expr)
         distinct-cs (distinct-exprs cs nil)]
     (concat distinct-cs (gen-complexes distinct-cs
                                        (matching-map rules expr)
@@ -116,8 +114,7 @@
                                                           [ar-id (key am)]))])))
                                 :mixture
                                 (lang/with-complexes))
-              product-cs (map (partial lang/subexpr products-expr)
-                              (-> products-expr meta :complexes))
+              product-cs (lang/complexes products-expr)
               new-cs (remove #(some (partial lang/match-expr %) cs) product-cs)
               rule-instance (lang/make-rule (:name r) reactants-expr products-expr (:rate r))]
         :when (empty? (filter #(and (lang/match-expr (:lhs rule-instance) (:lhs %))
@@ -137,10 +134,11 @@
                                                    (concat rs rule-instances)
                                                    (update-matching-map mm ncs+r ram) ram))))))
 
+;; FIXME get-reactions doesn't finish for egfr.kappa
 (defn get-reactions
   "Returns a lazy seq of all the rule instances (i.e., reactions) reachable by the system."
   [rules expr]
-  (let [cs (map (partial lang/subexpr expr) (-> expr meta :complexes))]
+  (let [cs (lang/complexes expr)]
     (gen-rule-instances (distinct-exprs cs nil) nil
                         (matching-map rules expr)
                         (maps/activation-map rules))))

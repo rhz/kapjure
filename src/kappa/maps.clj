@@ -75,10 +75,8 @@
         
         ;; compute the codomains of e1 and e2 in S
         [e1-S e2-S] (map (fn [e S]
-                           (let [e-complexes (map (partial lang/subexpr e)
-                                                  (-> e meta :complexes))
-                                 S-complexes (map (partial lang/subexpr S)
-                                                  (-> S meta :complexes))]
+                           (let [e-complexes (lang/complexes e)
+                                 S-complexes (lang/complexes S)]
                              (lang/domain2codomain S e-complexes S-complexes)))
                          [e1 e2] (repeat S))
         
@@ -158,8 +156,7 @@
              :let [cr-expr (lang/subexpr (:lhs r) cr)
 
                    embs (remove empty?
-                                (for [cm (-> mixture meta :complexes)
-                                      :let [cm-expr (lang/subexpr mixture cm)]]
+                                (for [cm-expr (lang/complexes mixture)]
                                   (lang/domain2codomain mixture [cr-expr] [cm-expr])))
 
                    ;; for each cr make a map from rule agent ids to mixture agent ids
