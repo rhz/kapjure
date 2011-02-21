@@ -9,8 +9,8 @@
 
 ;;; Activation and Inhibition map
 
-(defn- mix
-  "Tries to mix a1 with a2 in one single agent. If it couldn't returns nil."
+(defn mix
+  "Tries to mix a1 with a2 in one single agent. If it can't returns nil."
   [a1 a2 e1-e2]
   (c/handler-case :type
     (let [{name :name, a1states :states, a1bindings :bindings} a1
@@ -39,63 +39,22 @@
       (lang/make-agent name states bindings))
     (handle :unmixable-agents nil)))
 
-(defn- make-minimal-mixed-expr
-  "Returns the smallest expression mixing e1 and e2."
-  [e1 e2]
-  (let [[e1-e2 & left] (lang/pair-exprs e1 e2)]
-    (loop [agent-pairs e1-e2
-           ids-map (zipmap (apply concat (map keys left)) (repeatedly #(lang/get-unique-agent-id)))
-           result (into {} (apply concat
-                                  (map (partial map (fn [[id a]] [(ids-map id) a])) left)))]
-      (if (empty? agent-pairs)
-        (zipmap (keys result)
-                (doall (map #(update-in (val %) [:bindings]
-                                 (fn [b] (zipmap (keys b) (replace ids-map (vals b))))) result)))
+(defn intersection-domain [e1 e2]
+  (let [[e1-e2] (lang/pair-exprs e1 e2)]
+    (for [[[id1 a1] [_ a2]] e1-e2
+          :let [amixed (mix a1 a2 e1-e2)]
+          :when amixed
+          site (keys (:states amixed))]
+      [id1 site])))
 
-        (let [[oae1 oae2] (first agent-pairs)]
-          (if-let [mixed-agent (mix (val oae1) (val oae2) e1-e2)]
-            ;; mixable agents
-            (let [id (lang/get-unique-agent-id)]
-              (recur (rest agent-pairs)
-                     (into ids-map [{(key oae1) id} {(key oae2) id}])
-                     (conj result {id mixed-agent})))
-
-            ;; unmixable agents
-            (let [id1 (lang/get-unique-agent-id)
-                  id2 (lang/get-unique-agent-id)
-                  new-oae1 {id1 (val oae1)}
-                  new-oae2 {id2 (val oae2)}]
-              (recur (rest agent-pairs)
-                     (into ids-map [{(key oae1) id1} {(key oae2) id2}])
-                     (into result [new-oae1 new-oae2])))))))))
-
-(defn find-modified-site-in-mixed-expr-codomain [mss e1 e2]
-  (let [;; compute a minimal mixed expression between e1 and e2
-        S (lang/with-complexes (make-minimal-mixed-expr e1 e2))
-        
-        ;; compute the codomains of e1 and e2 in S
-        [e1-S e2-S] (map (fn [e S]
-                           (let [e-complexes (lang/complexes e)
-                                 S-complexes (lang/complexes S)]
-                             (lang/domain2codomain S e-complexes S-complexes)))
-                         [e1 e2] (repeat S))
-        
-        ;; compute the intersection between the sites in the codomains of e1 and e2 in S
-        cod (apply set/intersection (map (comp set vals) [e1-S e2-S]))
-        
-        ;; get back the sites corresponding to that intersection in e1
-        dom (set (for [[pa-site ea-site] e1-S
-                       :when (cod ea-site)]
-                   pa-site))]
-    ;; if at least one of the sites in the intersection is a site modified by r
-    ;; then r1 activates/inhibits r2
-    (some dom mss)))
+(defn find-modified-site-in-intersection-domain [mss e1 e2]
+  (some (set (intersection-domain e1 e2)) mss))
 
 (defn activates?
   "Tells whether r1 activates r2."
   [r1 r2]
   (boolean
-   (find-modified-site-in-mixed-expr-codomain (-> r1 :action meta :modified-sites)
+   (find-modified-site-in-intersection-domain (-> r1 :action meta :modified-sites)
                                               (:rhs r1) (:lhs r2))))
 
 (defn activation-map
@@ -111,7 +70,7 @@
   (if (identical? r1 r2)
     false
     (boolean
-     (find-modified-site-in-mixed-expr-codomain (-> r1 :action meta :modified-sites)
+     (find-modified-site-in-intersection-domain (-> r1 :action meta :modified-sites)
                                                 (:lhs r1) (:lhs r2)))))
 
 (defn inhibition-map
