@@ -9,14 +9,33 @@
             [clojure.contrib.duck-streams :as ds]
             [clojure.contrib.shell-out :as sh-out]))
 
+
+(defn- interleave-all [s1 s2]
+  (cond
+    (= (count s1) (inc (count s2))) (concat (interleave s1 s2) [(last s1)])
+    :else (interleave s1 s2)))
+
+(defn- replace-complexes [spec c-names]
+  (let [splitted-spec (s/split spec #"'")
+        ss (take-nth 2 splitted-spec)
+        c-strs (take-nth 2 (rest splitted-spec))
+        cs (map p/parse-expr c-strs)
+        cs2names (into {} (for [c cs]
+                            [c (filter (partial lang/match-expr c) (keys c-names))]))]
+    (apply str (interleave-all ss (map (comp #(if (next %)
+                                                (apply str (interpose " & " %))
+                                                (first %))
+                                             (partial map c-names) cs2names) cs)))))
+
+
 ;;;; PRISM
 
 (defn prism-encode [s]
   (s/replace s #"[(),~!]" "_"))
 
-(defn prism-module [c initial-state guards]
+(defn prism-module [guards initial-state c]
   (let [name (prism-encode (lang/expr-str c))
-        qty (count (filter (partial lang/match-expr c) initial-state))]
+        qty (count (filter (partial lang/match-expr c) (lang/complexes initial-state)))]
     (concat [(str "module " name)
              (str "  " name " : [0..N] init " qty ";")]
             (for [[r g] guards
@@ -37,32 +56,35 @@
                                   (-> r :rhs lang/expr-str prism-encode))]))]
     {:model (concat ["ctmc"
                      "const int N;"]
-                    (map #(prism-module % initial-state guards) complexes)
+                    (mapcat (partial prism-module guards initial-state) complexes)
                     ["module base_rates"]
                     (for [[r g] guards]
-                      (str "[" g "] true -> " (:rate r) " : true;"))
+                      (str "  [" g "] true -> " (:rate r) " : true;"))
                     ["endmodule"])
      :c-names (zipmap complexes (map (comp prism-encode lang/expr-str) complexes))}))
 
 (defn add-reward [prism-model reward]
-  (update-in prism-model [:model] concat [reward]))
+  (update-in prism-model [:model] concat [(replace-complexes reward (:c-names prism-model))]))
 
 (defn add-property [prism-model prop]
-  (update-in prism-model [:properties] concat [prop]))
+  (update-in prism-model [:properties] concat [(replace-complexes prop (:c-names prism-model))]))
 
 (defn set-N [prism-model N]
   (assoc prism-model :N N))
 
-(defn prism-check [prism-model]
-  (when (not (:N prism-model))
-    (throw (Exception. "set-N must be called on prism-model before calling prism-check")))
+(defn write-prism-model [prism-model]
   (let [model-file (java.io.File/createTempFile "prism-model-" ".sm")
         property-file (java.io.File/createTempFile "prism-model-" ".csl")]
     (ds/write-lines model-file (:model prism-model))
     (ds/write-lines property-file (:properties prism-model))
-    (-> (sh-out/sh "prism" (.getPath model-file) (.getPath property-file)
-                   "-fixdl" (str "-const 'N=" (:N prism-model) "'"))
-        (s/split-lines))))
+    [model-file property-file]))
+
+(defn prism-check [prism-model]
+  (when (not (:N prism-model))
+    (throw (Exception. "set-N must be called on prism-model before calling prism-check")))
+  (let [[model-file property-file] (write-prism-model prism-model)]
+    (sh-out/sh "prism" (.getPath model-file) (.getPath property-file)
+               "-fixdl" "-const" (str "N=" (:N prism-model)))))
 
 
 ;;;; NuSMV
@@ -112,7 +134,7 @@
 
 (defn nusmv-model
   "Convert a kappa model into a boolean NuSMV model (for model-checking)"
-  [rules initial-state]
+  [rules initial-state & options]
   (let [complexes (r/reachable-complexes rules initial-state)
         c-names (map nusmv-expr-str complexes)
         initial-c-names (map nusmv-expr-str (lang/complexes initial-state))
@@ -130,32 +152,13 @@
              (main-module c-names initial-c-names reactions arglist))
      :c-names (zipmap complexes c-names)}))
 
-(defn- interleave-all [s1 s2]
-  (cond
-    (= (count s1) (inc (count s2))) (concat (interleave s1 s2) [(last s1)])
-    :else (interleave s1 s2)))
-
-(defn- replace-complexes [spec sep c-names]
-  (let [splitted-spec (s/split spec #"'")
-        ss (take-nth 2 splitted-spec)
-        c-strs (take-nth 2 (rest splitted-spec))
-        cs (map p/parse-expr c-strs)
-        cs2names (into {} (for [c cs]
-                            [c (filter (partial lang/match-expr c) (keys c-names))]))]
-    (if (some next (vals cs2names))
-      (throw (Exception. "more than one match for spec complex"))
-      (apply str (interleave-all ss (map (comp #(if (next %)
-                                                  (str "(" (apply str (interpose " & " %)) ")")
-                                                  (first %))
-                                               (partial map c-names) cs2names) cs))))))
-
 (defn- add-nusmv-specs [model specs type]
   (->> (concat (:nusmv model)
                (for [spec specs]
                  (str (case type
                         :LTL "  LTLSPEC "
                         :CTL "  SPEC ")
-                      (apply str (replace-complexes spec "'" (:c-names model))) ";")))
+                      (replace-complexes spec (:c-names model)) ";")))
        (assoc model :nusmv)))
 
 (defn add-LTL-specs [model & LTL-specs]
@@ -167,10 +170,5 @@
 (defn nusmv-check [model]
   (let [f (java.io.File/createTempFile "nusmv-model-" ".smv")]
     (ds/write-lines f (:nusmv model))
-    (-> (sh-out/sh "nusmv" (.getPath f))
-        (s/split-lines))))
-
-(defn print-lines [ss]
-  (doseq [s ss]
-    (println s)))
+    (sh-out/sh "nusmv" (.getPath f))))
 
