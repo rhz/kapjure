@@ -31,7 +31,7 @@
 ;;;; PRISM
 
 (defn prism-encode [s]
-  (s/replace s #"[(),~!]" "_"))
+  (s/replace s #"[(),~! ]" "_"))
 
 (defn prism-module [guards initial-state c]
   (let [name (prism-encode (lang/expr-str c))
