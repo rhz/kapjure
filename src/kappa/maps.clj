@@ -5,7 +5,6 @@
             [kappa.misc :as misc]
             [clojure.set :as set]
             [clojure.contrib.condition :as c]))
-            ;;[clojure.data.finger-tree :as ft]))
 
 ;;; Activation and Inhibition map
 
@@ -30,32 +29,35 @@
                                 (or (nil? b2) (= b2 :unspecified)) [site b1]
                                 (and (= b1 :semi-link) (number? b2)) [site b2]
                                 (and (= b2 :semi-link) (number? b1)) [site b1]
-                                (and (number? b1) (number? b2))
-                                (let [lhs-id (lang/get-lhs-id b2 e1-e2)]
-                                  (if (= lhs-id b1)
-                                    [site b1]
-                                    (c/raise :type :unmixable-agents)))
+                                (and (number? b1) (number? b2)) [site b1]
                                 :else (c/raise :type :unmixable-agents))))]
       (lang/make-agent name states bindings))
     (handle :unmixable-agents nil)))
 
-(defn intersection-domain [e1 e2]
+(defn cod-intersection-in-dom [e1 e2]
   (let [[e1-e2] (lang/pair-exprs e1 e2)]
-    (for [[[id1 a1] [_ a2]] e1-e2
+    (for [[[id1 a1] [id2 a2]] e1-e2
           :let [amixed (mix a1 a2 e1-e2)]
           :when amixed
           site (keys (:states amixed))]
-      [id1 site])))
+      [id1 site id2])))
 
-(defn find-modified-site-in-intersection-domain [mss e1 e2]
-  (some (set (intersection-domain e1 e2)) mss))
+(defn modified-site-in-intersection [mss e1 e2]
+  (let [is (cod-intersection-in-dom e1 e2)
+        mss-in-intersection (filter (comp (set mss) (partial take 2)) is)
+        complex-expr (fn [e id] (lang/subexpr e (lang/complex e id)))]
+    (if (seq mss-in-intersection)
+      (some (fn [[id1 _ id2]]
+              (or (lang/match-expr (complex-expr e1 id1) (complex-expr e2 id2))
+                  (lang/match-expr (complex-expr e2 id2) (complex-expr e1 id1))))
+            mss-in-intersection)
+      nil)))
 
 (defn activates?
   "Tells whether r1 activates r2."
   [r1 r2]
-  (boolean
-   (find-modified-site-in-intersection-domain (-> r1 :action meta :modified-sites)
-                                              (:rhs r1) (:lhs r2))))
+  (boolean (modified-site-in-intersection (-> r1 :action meta :modified-sites)
+                                          (:rhs r1) (:lhs r2))))
 
 (defn activation-map
   "Returns a map from each rule r in rules to the rules r activates."
@@ -67,11 +69,9 @@
 (defn inhibits?
   "Tells whether r1 inhibits r2."
   [r1 r2]
-  (if (identical? r1 r2)
-    false
-    (boolean
-     (find-modified-site-in-intersection-domain (-> r1 :action meta :modified-sites)
-                                                (:lhs r1) (:lhs r2)))))
+  (and (not (identical? r1 r2))
+       (boolean (modified-site-in-intersection (-> r1 :action meta :modified-sites)
+                                               (:lhs r1) (:lhs r2)))))
 
 (defn inhibition-map
   "Returns a map from each rule r in rules to the rules r inhibits."
