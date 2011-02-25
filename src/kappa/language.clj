@@ -5,23 +5,13 @@
             [clojure.contrib.combinatorics :as comb]
             [clojure.set :as set]))
 
-;;; TODO an Agent record is an "agent specification".
-;;;      a pair [id agent-spec] is an agent
-;;;      a map {id agent-spec} is a one-agent expression
-;;; Esta nomenclatura deberia simplificar la descripcion de las funciones
-;;; Ademas, estoy seguro que por ahi hay algunas funciones que reciben un agente,
-;;; cuando deberian recibir solo un id, como por ejemplo complex.
-
 
 ;;;; Agents
 
 (defrecord Agent [name states bindings])
-;; states is a map from site names (as keywords)
-;; to internal site states (as strings)
-;; bindings is a map from site names to one
-;; of the tags: :free, :unspecified, :semi-link
+;; states is a map from site names to site internal states
+;; bindings is a map from site names to one of the tags: :free, :unspecified, :semi-link
 ;; or the id of the bound agent
-;; ids are assigned by the expression
 
 (defn make-agent [name states bindings]
   (Agent. name states bindings))
@@ -53,7 +43,6 @@
   (instance? Agent obj))
 
 
-
 ;;;; Expressions
 
 ;; an expression is a map from ids to Agents
@@ -67,7 +56,7 @@
   [expr a-id site]
   (let [partner-id (get-in expr [a-id :bindings site])
         ;; FIXME this will fail for agents that are bound by two links
-        partner-site (first (filter (comp #{a-id} val) (:bindings (expr partner-id))))]
+        partner-site (key (first (filter (comp #{a-id} val) (:bindings (expr partner-id)))))]
     [partner-id partner-site]))
 
 (defn complex
@@ -97,6 +86,7 @@
 
 ;; print-method can't tell if its argument is an expression or other kind of map, so...
 (defn expr-str [expr]
+  ;; FIXME replace agents ids in bindings by minimal bond labels
   (apply str (interpose ", " (map print-str (vals expr)))))
 
 (defn expression?
@@ -392,7 +382,7 @@
                 (when (and (number? lb) (not (number? rb)))
                   {:unbound [[lb lhs-id site]]})
                 (when (and (= lb :semi-link) (not= rb :semi-link))
-                  {:unbound [[nil lhs-agent site]]})
+                  {:unbound [[nil lhs-id site]]})
                 (when (and (number? lb) (number? rb))
                   (if-let [a2-id (get-lhs-id rb lhs-rhs)]
                     (when (not= lb a2-id)
