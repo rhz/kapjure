@@ -27,6 +27,8 @@ This will make the library to be loaded under the handy alias `k`.
 
 #### Basic tutorial
 
+# Rules and expressions
+
 Do you want to create some Kappa rules? Then:
 
     (k/def-rules
@@ -47,6 +49,8 @@ To create Kappa expressions is equally easy:
 Both `def-rules` and `def-exprs` have their
 <a href="http://clojure.org/special_forms#Special Forms--(let [bindings* ] exprs*)">let</a>
 counterparts: `let-rules` and `let-exprs`.
+
+# Simulation
 
 Once you have some rules and a expression, you can create a *reaction chamber*.
 A chamber is a compartment where a simulation occurs.
@@ -86,11 +90,13 @@ Instead, what you want is to track the counts of some complexes.
 That's what the third argument to `make-chamber` is for!
 For example, in `initial-chamber` we're tracking the complexes S(x) and P(x),
 that is, the substrate and the product of that Michaelian enzymatic reaction.
-If you want to get a map for their counts, just call `get-obs-counts`:
+If you want to get a map for their counts, just call `get-sim-counts`:
 
     (let [initial-chamber (k/make-chamber [r1 r1-op r2] e1 [obs1 obs2] [])
           simulation (take 10 (iterate k/gen-event initial-chamber))]
-      (k/get-obs-expr-counts simulation))
+      (k/get-sim-counts simulation))
+
+# Plotting
 
 This could be easily plotted using <a href="http://incanter.org/">Incanter</a>.
 In fact, the function `plot-obs-exprs` in `kappa.graphics` will make this plot for you.
@@ -99,12 +105,21 @@ To call it, you must pass it the simulation (a sequence of chambers) and optiona
     (require '[kappa.graphics :as g])
     (let [initial-chamber (k/make-chamber [r1 r1-op r2] e1 [obs1 obs2] [])
           simulation (take 10 (iterate k/gen-event initial-chamber))]
-      (g/view (g/get-obs-expr-counts simulation :title "Michaelian enzyme")))
+      (g/view (g/plot-obs-exprs simulation :title "Michaelian enzyme")))
 
 The `view` and `save` functions in `kappa.graphics` do exactly the same as their
 homonymous functions in `incanter.core`.
 These two functions have been exposed through `kappa.graphics` so you don't
 have to import Incanter as well.
+
+# Reading Kappa files
+
+To read Kappa files (`.ka`), you can use the `slurp` function in `clojure.core` and
+`k/parse-system`.
+
+    (require '[kappa.io :as io])
+    (let [initial-chamber (k/parse-system (slurp "filename.kappa"))]
+      (io/simulate-write-and-report "filename.txt" initial-chamber 100000))
 
 
 ### Contributors
