@@ -27,7 +27,7 @@ This will make the library to be loaded under the handy alias `k`.
 
 #### Basic tutorial
 
-# Rules and expressions
+##### Rules and expressions
 
 Do you want to create some Kappa rules? Then:
 
@@ -50,7 +50,7 @@ Both `def-rules` and `def-exprs` have their
 <a href="http://clojure.org/special_forms#Special Forms--(let [bindings* ] exprs*)">let</a>
 counterparts: `let-rules` and `let-exprs`.
 
-# Simulation
+##### Simulation
 
 Once you have some rules and a expression, you can create a *reaction chamber*.
 A chamber is a compartment where a simulation occurs.
@@ -96,7 +96,7 @@ If you want to get a map for their counts, just call `get-sim-counts`:
           simulation (take 10 (iterate k/gen-event initial-chamber))]
       (k/get-sim-counts simulation))
 
-# Plotting
+##### Plotting
 
 This could be easily plotted using <a href="http://incanter.org/">Incanter</a>.
 In fact, the function `plot-obs-exprs` in `kappa.graphics` will make this plot for you.
@@ -112,7 +112,7 @@ homonymous functions in `incanter.core`.
 These two functions have been exposed through `kappa.graphics` so you don't
 have to import Incanter as well.
 
-# Reading Kappa files
+##### Reading Kappa files
 
 To read Kappa files (`.ka`), you can use the `slurp` function in `clojure.core` and
 `k/parse-system`.
