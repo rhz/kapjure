@@ -219,12 +219,12 @@
   "Consumes a initial expression line in a Kappa system."
   {:no-memoize? true}
   (h/hook (fn [e] {:init [e]})
-          (h/prefix (h/phrase "%init: ") <expr>)))
+          (h/prefix (h/suffix (h/phrase "%init:") <ws>) <expr>)))
 
 (h/defrule- <obs-line>
   "Consumes an observable line in a Kappa system."
   {:no-memoize? true}
-  (h/prefix (h/phrase "%obs: ")
+  (h/prefix (h/suffix (h/phrase "%obs:") <ws>)
             (h/for [var-name (h/opt (h/circumfix (h/lit \') <alphanumeric-string> (h/lit \')))
                     expr (h/opt <expr>)]
               (if (nil? expr)
@@ -234,7 +234,7 @@
 (h/defrule- <var-line>
   "Consumes a variable-declaration line in a Kappa system."
   {:no-memoize? true}
-  (h/prefix (h/phrase "%var: ")
+  (h/prefix (h/suffix (h/phrase "%var:") <ws>)
             (h/for [var-name (h/circumfix (h/lit \') <alphanumeric-string> (h/lit \'))
                     expr <expr>]
               {:var [[var-name expr]]})))
