@@ -6,7 +6,7 @@ Kapjure is an open-source <a href="http://clojure.org/">Clojure</a> library for 
 
 #### License
 
-The code is released under the <a href="http://www.gnu.org/licenses/gpl.html">GNU GPL</a>.
+The code is released under the <a href="http://www.gnu.org/licenses/lgpl.html">GNU LGPL</a>.
 
 #### Downloading the Source Code
 
