@@ -8,4 +8,5 @@
                  [org.clojars.ohpauleez/fnparse "3.0.0alpha4"]
                  [clojure.data.finger-tree "0.0.1-SNAPSHOT"]
                  [incanter "1.2.3"]]
+  :aot [sim]
   :warn-on-reflection true)

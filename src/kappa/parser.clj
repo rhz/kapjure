@@ -219,41 +219,30 @@
   "Consumes a initial expression line in a Kappa system."
   {:no-memoize? true}
   (h/hook (fn [e] {:init [e]})
-          (h/prefix (h/suffix (h/phrase "%init:") <ws>) <expr>)))
+          (h/prefix (h/suffix (h/lex (h/phrase "%init:")) (h/opt <ws>)) <expr>)))
 
 (h/defrule- <obs-line>
   "Consumes an observable line in a Kappa system."
   {:no-memoize? true}
-  (h/prefix (h/suffix (h/phrase "%obs:") <ws>)
-            (h/for [var-name (h/opt (h/circumfix (h/lit \') <alphanumeric-string> (h/lit \')))
-                    expr (h/opt <expr>)]
-              (if (nil? expr)
-                {:obs-rules [var-name]}
-                {:obs-exprs [var-name] :vars [[var-name expr]]}))))
-
-(h/defrule- <var-line>
-  "Consumes a variable-declaration line in a Kappa system."
-  {:no-memoize? true}
-  (h/prefix (h/suffix (h/phrase "%var:") <ws>)
-            (h/for [var-name (h/circumfix (h/lit \') <alphanumeric-string> (h/lit \'))
-                    expr <expr>]
-              {:var [[var-name expr]]})))
+  (h/prefix (h/cat (h/lex (h/phrase "%obs:")) (h/opt <ws>))
+            (h/+ (h/hook (fn [rule-name] {:obs-rules [rule-name]})
+                         (h/opt (h/circumfix (h/lit \') <alphanumeric-string> (h/lit \'))))
+                 (h/hook (fn [e] {:obs-exprs [e]})
+                         (h/opt <expr>)))))
 
 (defn- make-system [v]
-  (let [[rules init-obs-var] ((juxt filter remove) #(or (lang/rule? %) (vector? %)) v)
-        {:keys [init obs-exprs obs-rules vars]} (-> (apply merge-with concat init-obs-var)
-                                                    (update-in [:vars] (partial into {})))]
+  (let [[rules init-obs] ((juxt filter remove) #(or (lang/rule? %) (vector? %)) v)
+        {:keys [init obs-exprs obs-rules]} (apply merge-with concat init-obs)]
     (chamber/make-chamber (apply concat (filter lang/rule? rules) (remove lang/rule? rules))
                           (apply lang/mix-exprs init)
-                          (map vars obs-exprs)
-                          obs-rules)))
+                          obs-exprs obs-rules)))
 
 (h/defrule- <system>
   "Consumes a Kappa system specification."
   {:no-memoize? true}
   (h/hook make-system
           (circumfix-ws (h/separated-rep <ws> ;; FIXME problem with comments
-                                         (h/+ <rule> <init-line> <obs-line> <var-line>)))))
+                                         (h/+ <rule> <init-line> <obs-line>)))))
 
 ;;; Parser fns... thanks do-template
 (do-template [fn-name rule label]

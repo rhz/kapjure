@@ -1,6 +1,6 @@
-(ns ^{:doc ""
-      :author "Ricardo Honorato-Zimmer"}
-  kappa)
+(ns kappa
+  {:doc ""
+   :author "Ricardo Honorato-Zimmer"})
 
 ;; taken from compojure
 (defn immigrate
