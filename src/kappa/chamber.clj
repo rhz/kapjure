@@ -225,7 +225,7 @@
                             (update-in lm [a-id s] (fnil conj #{}) (maps/make-lm-val r c emb)))
                           % cod-sites)))))
 
-(def *max-clashes* 8)
+(def *max-clashes* 1000)
 
 (defn gen-event
   "Generates a new event from chamber. You can additionally provide any
@@ -233,32 +233,32 @@
   new chamber. These callback functions are called at the end of the iteration and
   can update chamber's properties."
   [chamber & callbacks]
-  (when (or (> (:clash-cnt chamber) *max-clashes*)
-            (every? zero? (vals (:activity-map chamber))))
-    (throw (Exception. "Deadlock found!")))
-  (let [r (select-rule (select-keys (:activity-map chamber)
-                                    (:rules chamber))) ;; we don't want to select the fake rule
-        m (select-matching-per-complex ((:matching-map chamber) r))
-        dt (time-advance (:activity-map chamber))]
-    (if (clash? m)
-      (-> chamber
-        (update-in [:clash-cnt] inc) ; increment clash-cnt
-        (update-in [:time] + dt) ; and time
-        (update-in [:event-cnt] inc))
-      (-> chamber
-        ;; meta cleanup first
-        (vary-meta merge {:added-agents [], :removed-agents [], :modified-sites []})
-        (vary-meta merge {:executed-rule r})
-        ((:action r) m)
-        ((apply comp identity (:callbacks chamber)))
-        ((apply comp identity callbacks))
-        negative-update
-        positive-update
-        (assoc :clash-cnt 0)
-        (update-in [:time] + dt)
-        (update-in [:event-cnt] inc)
-        (update-activities (concat ((:ram chamber) r)
-                                   ((:rim chamber) r) [r]))))))
+  (if (or (> (:clash-cnt chamber) *max-clashes*)
+          (every? zero? (vals (:activity-map chamber))))
+    (assoc chamber :deadlock? true)
+    (let [r (select-rule (select-keys (:activity-map chamber)
+                                      (:rules chamber))) ;; we don't want to select the fake rule
+          m (select-matching-per-complex ((:matching-map chamber) r))
+          dt (time-advance (:activity-map chamber))]
+      (if (clash? m)
+        (-> chamber
+            (update-in [:clash-cnt] inc) ; increment clash-cnt
+            (update-in [:time] + dt) ; and time
+            (update-in [:event-cnt] inc))
+        (-> chamber
+            ;; meta cleanup first
+            (vary-meta merge {:added-agents [], :removed-agents [], :modified-sites []})
+            (vary-meta merge {:executed-rule r})
+            ((:action r) m)
+            ((apply comp identity (:callbacks chamber)))
+            ((apply comp identity callbacks))
+            negative-update
+            positive-update
+            (assoc :clash-cnt 0)
+            (update-in [:time] + dt)
+            (update-in [:event-cnt] inc)
+            (update-activities (concat ((:ram chamber) r)
+                                       ((:rim chamber) r) [r])))))))
 
 ;; Talvez sea mejor realizar el positive y negative update en cada accion.
 
